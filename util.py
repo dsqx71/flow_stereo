@@ -6,8 +6,12 @@ from model import get_network
 import matplotlib.pyplot as plt
 import numpy as np
 import cv2
+import densecrf as dcrf
+from  guided_filter.core import filters
+from dp import dp_mrf
 
 def init(key,weight,value):
+
     if 'bias' in key:
         weight[:] = 0
     if key == 'w1_weight' or key == 'w2_weight':
@@ -17,7 +21,7 @@ def init(key,weight,value):
 
 def output_embedding(img_dir,epoch,ctx):  
     '''
-        fully embedding
+        预测时network的形式是fcn
     '''
     left  = io.imread(img_dir[1])
     right = io.imread(img_dir[2])
@@ -27,8 +31,8 @@ def output_embedding(img_dir,epoch,ctx):
     left =( left - left.reshape(-1,3).mean(axis=0) )/left.reshape(-1,3).std(axis=0)
     right=( right- right.reshape(-1,3).mean(axis=0))/right.reshape(-1,3).std(axis=0)
 
-    left_downsample = ( left_downsample - left_downsample.reshape(-1,3).mean(axis=0) )/left_downsample.reshape(-1,3).std(axis=0)
-    right_downsample=( right_downsample- right_downsample.reshape(-1,3).mean(axis=0))/right_downsample.reshape(-1,3).std(axis=0)
+    left_downsample = ( left_downsample - left_downsample.reshape(-1,3).mean(axis=0)) / left_downsample.reshape(-1,3).std(axis=0)
+    right_downsample=( right_downsample- right_downsample.reshape(-1,3).mean(axis=0)) / right_downsample.reshape(-1,3).std(axis=0)
     
     left =  left.swapaxes(2,1).swapaxes(1,0) 
     right= right.swapaxes(2,1).swapaxes(1,0) 
@@ -75,8 +79,25 @@ def get_kitty_data_dir2015(low,high):
         imgR = './image_3/'+dir_name+'_10.png'.format(num)
         img_dir.append((gt,imgL,imgR))
     return img_dir
+    
+def test_set_kitty_dir2015(low,high):
+    
+    img_dir = []
+    for num in range(low,high):
+        dir_name = '000{}'.format(num)
+        if len(dir_name) ==4 :
+            dir_name = '00'+dir_name
+        elif len(dir_name) == 5:
+            dir_name = '0'+dir_name
+        imgL = './testing/image_2/'+dir_name+'_10.png'.format(num)
+        imgR = './testing/image_3/'+dir_name+'_10.png'.format(num)
+        img_dir.append((imgL,imgL,imgR))
+    return img_dir
 
 def assign_grad_req(net):
+    '''
+        w1_weight 设定为 add 会出现未知错误
+    '''
     grad_req = {}
     for key in net.list_arguments():
         if key =='w1_weight' or key =='w2_weight':
@@ -127,6 +148,7 @@ def draw_patch(args,executor,img_idx):
     plt.close()   
 
 def produce_stereo_matching(dirs,ctx,dis_range,epoch_num):
+
     args1,l,r,ld,rd = output_embedding(dirs,epoch_num,ctx)
     _,args2,_ = mx.model.load_checkpoint('stereo',epoch_num)
     w1 = args2['w1_weight'].asnumpy()[0][0][0][0]
@@ -170,10 +192,7 @@ def produce_stereo_matching(dirs,ctx,dis_range,epoch_num):
                 t2 =  x + dis_range
             length1 = len(tmp[x,t1:x+1])
             length2 = len(tmp[x:t2,x])
-      
-            dis_right[y,x] =  tmp[x:t2,x].argmax()
-            dis_left[y,x]  =  tmp[x,t1:x+1][::-1].argmax()
-          
+            
             ms_left[y,x,:length1]  =  tmp[x,t1:x+1][::-1]
             ms_right[y,x,:length2] =  tmp[x:t2,x]
             
@@ -181,25 +200,23 @@ def produce_stereo_matching(dirs,ctx,dis_range,epoch_num):
                 ms_left[y,x,length1:] = np.ones(dis_range-length1) * 0.3
             if length2!=dis_range:
                 ms_right[y,x,length2:]= np.ones(dis_range-length2) * 0.3
-    return dis_left,dis_right,ms_left,ms_right,w1,w2
+    
+    return ms_left,ms_right,w1,w2
 
 def outlier_sum(pred,gt,tau=3):
-    
+
+    #outlier ： err >3  || err/gt > 0.05
     outlier = np.zeros(gt.shape)
     mask = gt > 0
     gt = np.round(gt[mask]/256.0)
     pred = pred[mask]
     err = np.abs(pred-gt)
     outlier[mask] = err
-    plt.figure()
-    plt.imshow(outlier)
-    plt.close()
+    
     return (err[err>tau]/gt[err>tau].astype(np.float32) > 0.05).sum()/float(mask.sum()),outlier
 
-def compute_unary(ms,class_num,GT_PROB,tau):
-    '''
-       MRF unary energy
-    '''
+def compute_unary(ms,class_num,tau):
+
     u = ms.reshape(-1,class_num).T
     u[0,:] = 0.0
     tot = u.T.sum(axis=1)
@@ -207,4 +224,38 @@ def compute_unary(ms,class_num,GT_PROB,tau):
     mask = u.max(axis=0) < tau
     u[:,mask] = np.ones((class_num,sum(mask))) * 0.00001
     u = np.ascontiguousarray(u)
+    
     return (-np.log(u)).astype(np.float32)
+
+def mrf_guided_filter(dis_num,ms,left):
+
+    d = dcrf.DenseCRF2D(ms.shape[1],ms.shape[0],dis_num)
+    u = compute_unary(ms,dis_num,0.003)
+    d.setUnaryEnergy(u)
+    left = np.ascontiguousarray(left)
+    d.addPairwiseBilateral(sxy=(15,15), srgb=(13, 13, 13), rgbim=left,
+                           compat=35,
+                           kernel=dcrf.FULL_KERNEL,
+                           normalization=dcrf.NORMALIZE_SYMMETRIC)
+    Q = d.inference(5)
+    dis_map = np.argmax(Q, axis=0).reshape(ms.shape[:2])
+    return dis_map  
+
+def implement_guided_filter(ms,left,radius,epsilon,scale):
+    
+    ms[:,:,0] = 0
+    gf = filters.FastGuidedFilter(left,radius=radius,epsilon=epsilon,scale=scale)
+    ms = gf.filter(ms)
+    dis = ms.argmax(axis=2)
+    
+    return dis
+
+def mrf_dp(ms,p1,p2,dis_num,left):
+    
+    tmp = ms[::2,::2,:]
+    tmp = dp_mrf(tmp,p1,p2,dis_num)
+    tmp = tmp.mean(axis=0)
+    tmp = cv2.resize(tmp,(left.shape[1],left.shape[0]))
+    tmp = tmp.argmin(axis=2)
+
+    return tmp

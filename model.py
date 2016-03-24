@@ -108,7 +108,8 @@ class dataiter(mx.io.DataIter):
                         self.data[1].append(right[y-s1:y+1+s1,x-s1-d:x+1+s1-d,:])
                         self.data[2].append(cv2.resize(left[y-s2:y+s2,x-s2:x+s2,:], (0,0), fx=0.5, fy=0.5))
                         self.data[3].append(cv2.resize(right[y-s2:y+s2,x-s2-d:x+s2-d,:],(0,0), fx=0.5, fy=0.5))
-                        self.labels.append(1)
+                        self.data_augment()
+                        self.labels.extend([1,1])
                         while True:
                             temp = [x - d + move for move in range(self.low,self.high+1) if x-d+move<dis.shape[1]-s2]
                             temp.extend([x - d - move for move in range(self.low,self.high+1) if x-d-move>=s2]) 
@@ -120,8 +121,9 @@ class dataiter(mx.io.DataIter):
                         self.data[1].append(right[y-s1:y+1+s1,  xn-s1:xn+1+s1,:])
                         self.data[2].append(cv2.resize(left[y-s2:y+s2,    x-s2:x+s2,:],(0,0),fx=0.5,fy=0.5))
                         self.data[3].append(cv2.resize(right[y-s2:y+s2, xn-s2:xn+s2,:],(0,0),fx=0.5,fy=0.5))  
-                        self.labels.append(0) 
-                        self.inventory += 2  
+                        self.data_augment()
+                        self.labels.extend([0,0]) 
+                        self.inventory += 4  
         #utils.shuffle([self.data[0],self.data[1],self.data[2],self.data[3],self.labels])
     def data_augment(self):
 

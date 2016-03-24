@@ -19,6 +19,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()  
     parser.add_argument('--continue',action='store',dest='con',type=int)
     parser.add_argument('--lr',action='store',dest='lr',type=float)
+
+    # 负样本的偏移范围
+    
     parser.add_argument('--l',action='store',dest='low',type=int)
     parser.add_argument('--h',action='store',dest='high',type=int)
 
@@ -30,30 +33,29 @@ if __name__ == '__main__':
     data_sign = ['left','right','left_downsample','right_downsample','label']
     
     if cmd.con == -1:
+        # 重新开始学
         net = get_network('not fully',batch_size)
         grad_req = assign_grad_req(net)
         executor = net.simple_bind(ctx=ctx,grad_req=grad_req,left_downsample=s1,right_downsample=s1,left = s1,right= s1)
-        keys  = net.list_arguments()
-        grads = dict(zip(net.list_arguments(),executor.grad_arrays))
-        args  = dict(zip(keys,executor.arg_arrays))
-        auxs  = dict(zip(keys,executor.arg_arrays))
         logging.info("complete network architecture design")
     else:
         net,executor = load_model('stereo',cmd.con,s1,s1,'not fully',ctx,batch_size)
-        keys = net.list_arguments()
-        grads = dict(zip(keys,executor.grad_arrays))
-        args  = dict(zip(keys,executor.arg_arrays))
-        auxs  = dict(zip(keys,executor.arg_arrays))
         logging.info("load the paramaters and net")
+
+    keys  = net.list_arguments()
+    grads = dict(zip(keys,executor.grad_arrays))
+    args  = dict(zip(keys,executor.arg_arrays))
+    auxs  = dict(zip(keys,executor.arg_arrays))
        
     num_epoches = 10000
-    dirs = get_kitty_data_dir2015(0,180)
-    dirs.extend(get_kitty_data_dir2012(0,180))
+    dirs =      get_kitty_data_dir2015(0,200)
+    dirs.extend(get_kitty_data_dir2012(0,194))
     train_iter =  dataiter(dirs,batch_size,ctx,'train',cmd.high,cmd.low,3,1.3,0.7)
     states     =  {}
-    #init
-    opt = mx.optimizer.SGD(learning_rate=cmd.lr,momentum = 0.9,wd=0.00001,rescale_grad=(1.0/batch_size))
-   
+ 
+    #opt = mx.optimizer.SGD(learning_rate=cmd.lr,momentum = 0.9,wd=0.00001,rescale_grad=(1.0/batch_size))  
+    opt = mx.optimizer.Adam(learning_rate=cmd.lr,beta1=0.9, beta2=0.999, epsilon=1e-08)
+    
     for index,key in enumerate(keys):
         if key not in data_sign:
             states[key] = opt.create_state(index,args[key])
@@ -79,7 +81,8 @@ if __name__ == '__main__':
             nbatch += 1
         
             executor.forward(is_train=True)
-            
+            executor.backward()
+
             #draw_patch(args,executor,train_iter.img_idx)
             loss = np.power(executor.outputs[0].asnumpy() - args['label'].asnumpy().reshape(-1,1),2).mean()
             train_loss  += loss
@@ -94,7 +97,6 @@ if __name__ == '__main__':
                 print train_iter.now_img 
                 logging.info("mean loss of 30 batches: {} ".format(loss_of_100))
 
-            executor.backward()
             for index,key in enumerate(keys):
                 if key not in data_sign:       
                     opt.update(index,args[key],grads[key],states[key])
@@ -106,6 +108,7 @@ if __name__ == '__main__':
 
         train_loss/=nbatch
         logging.info('training: ith_epoche :{} mean loss:{} last loss:{}'.format(ith_epoche,train_loss,last_loss))
+        
         if train_loss>last_loss+0.0001**ith_epoche:
             opt.lr/= 0.1
         last_loss = train_loss
