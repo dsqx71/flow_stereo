@@ -1,115 +1,107 @@
-# -*- coding:utf-8 -*-  
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import mxnet as mx
-import numpy as np
-import logging
-import os
 import argparse
-from model import get_network,dataiter
-from util import get_kitty_data_dir2012,get_kitty_data_dir2015,load_model,draw_patch,init,assign_grad_req
+import logging
+import mxnet as mx
+import model
+import data
+import util
+import metric
+from config import cfg
 
-logging.basicConfig(level=logging.DEBUG,
-                format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
-                datefmt='%a, %d %b %Y %H:%M:%S')
+# logging
 
-if __name__ == '__main__':
+logging.basicConfig(level=logging.DEBUG,format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
+					datefmt='%a, %d %b %Y %H:%M:%S',filename='log_training.log', filemode='a')
 
-    parser = argparse.ArgumentParser()  
-    parser.add_argument('--continue',action='store',dest='con',type=int)
-    parser.add_argument('--lr',action='store',dest='lr',type=float)
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s')
+console.setFormatter(formatter)
+logging.getLogger('').addHandler(console)
 
-    # 负样本的偏移范围
-    
-    parser.add_argument('--l',action='store',dest='low',type=int)
-    parser.add_argument('--h',action='store',dest='high',type=int)
+# parse parameter
 
-    cmd = parser.parse_args()
-    batch_size = 5000
-    s1 = (batch_size,3,13,13)
-    s2 = (batch_size,3,27,27)
-    ctx = mx.gpu(3) 
-    data_sign = ['left','right','left_downsample','right_downsample','label']
-    
-    if cmd.con == -1:
-        # 重新开始学
-        net = get_network('not fully',batch_size)
-        grad_req = assign_grad_req(net)
-        executor = net.simple_bind(ctx=ctx,grad_req=grad_req,left_downsample=s1,right_downsample=s1,left = s1,right= s1)
-        logging.info("complete network architecture design")
-    else:
-        net,executor = load_model('stereo',cmd.con,s1,s1,'not fully',ctx,batch_size)
-        logging.info("load the paramaters and net")
+parser = argparse.ArgumentParser()
+parser.add_argument('--continue', action='store', dest='con', type=int)
+parser.add_argument('--lr', action='store', dest='lr', type=float)
+parser.add_argument('--ctx', action='store', dest='ctx', type=int)
+cmd = parser.parse_args()
 
-    keys  = net.list_arguments()
-    grads = dict(zip(keys,executor.grad_arrays))
-    args  = dict(zip(keys,executor.arg_arrays))
-    auxs  = dict(zip(keys,executor.arg_arrays))
-       
-    num_epoches = 10000
-    dirs =      get_kitty_data_dir2015(0,200)
-    dirs.extend(get_kitty_data_dir2012(0,194))
-    train_iter =  dataiter(dirs,batch_size,ctx,'train',cmd.high,cmd.low,3,1.3,0.7)
-    states     =  {}
- 
-    #opt = mx.optimizer.SGD(learning_rate=cmd.lr,momentum = 0.9,wd=0.00001,rescale_grad=(1.0/batch_size))  
-    opt = mx.optimizer.Adam(learning_rate=cmd.lr,beta1=0.9, beta2=0.999, epsilon=1e-08)
-    
-    for index,key in enumerate(keys):
-        if key not in data_sign:
-            states[key] = opt.create_state(index,args[key])
-            if cmd.con == -1 :
-                init(key,args[key],0.07)
+# config
 
-    # train + validate 
-    last_loss = 0.25
-    for ith_epoche in range(num_epoches):    
+epoch = cfg.MODEL.epoch_num
+ctx = mx.gpu(cmd.ctx)
+batch_shape = (8,) + data.FlyingChairsDataset.shapes()
 
-        train_iter.reset()
-        train_loss = 0.0
-        nbatch = 0
-        loss_of_100 = 0.0
+# load net and args
+net = model.flow_and_stereo_net('flow', loss1_scale=cfg.MODEL.loss1_scale, loss2_scale=cfg.MODEL.loss2_scale,
+									    loss3_scale=cfg.MODEL.loss3_scale, loss4_scale=cfg.MODEL.loss4_scale,
+									    loss5_scale=cfg.MODEL.loss5_scale, loss6_scale=cfg.MODEL.loss6_scale)
 
-        for dbatch in train_iter:
-           
-            args['left'][:]             = dbatch.data[0]
-            args['right'][:]            = dbatch.data[1]
-            args['left_downsample'][:]  = dbatch.data[2]
-            args['right_downsample'][:] = dbatch.data[3]
-            args['label'][:] = dbatch.label
-            nbatch += 1
-        
-            executor.forward(is_train=True)
-            executor.backward()
+if cmd.con == 0:
+	executor = net.simple_bind(ctx=ctx,grad_req='write',img1=batch_shape,img2=batch_shape)
+	util.init_param(cfg.MODEL.weight_init_scale , executor.arg_dict)
+	logging.info("complete network architecture design")
+else:
+	executor = util.load_model(name='./check_point/flow',
+							   epoch = cmd.con,
+							   net=net,
+							   batch_shape = batch_shape,
+							   ctx = ctx,
+							   network_type='write')
+	logging.info("load the {} th epoch paramaters".format(cmd.con))
 
-            #draw_patch(args,executor,train_iter.img_idx)
-            loss = np.power(executor.outputs[0].asnumpy() - args['label'].asnumpy().reshape(-1,1),2).mean()
-            train_loss  += loss
-            loss_of_100 += loss
-            tmp    = executor.outputs[0].asnumpy()
-            pos_ms = tmp[args['label'].asnumpy()==1].mean()
-            neg_ms = tmp[args['label'].asnumpy()==0].mean()
-            logging.info("training: {}th pair img:{}th l2 loss:{} pos_ms:{} neg_ms:{} >:{} lr:{}".format(nbatch,train_iter.img_idx,loss,pos_ms,neg_ms,pos_ms-neg_ms,opt.lr))
-       
-            if nbatch % 30 == 0:
-                loss_of_100 /=30.0
-                print train_iter.now_img 
-                logging.info("mean loss of 30 batches: {} ".format(loss_of_100))
 
-            for index,key in enumerate(keys):
-                if key not in data_sign:       
-                    opt.update(index,args[key],grads[key],states[key])
-                    grads[key][:] = np.zeros(grads[key].shape)
+#init
+keys = net.list_arguments()
+grads = dict(zip(keys,executor.grad_arrays))
+opt = mx.optimizer.Adam(learning_rate=cmd.lr,
+						beta1=cfg.ADAM.beta1,
+						beta2=cfg.ADAM.beta2,
+						epsilon=cfg.ADAM.epsilon,
+						rescale_grad=1.0/batch_shape[0])
 
-            if nbatch % 50 == 0:
-                cmd.con = (cmd.con + 1) % 50
-                mx.model.save_checkpoint('stereo',cmd.con,net,args,auxs)
+endpointerr = metric.EndPointErr()
+flow_shapes = util.estimate_label_size(net, batch_shape)
+dataiter = data.FlowDataiter(data.FlyingChairsDataset(1, 22000),
+							 batch_shape[0],
+							 'training',
+							 flow_shapes,
+							 cfg.dataset.augment_ratio)
+states = {}
+for index, key in enumerate(executor.arg_dict):
+	if 'img' not in key and 'stereo' not in key and 'flow' not in key:
+		states[key] = opt.create_state(index, executor.arg_dict[key])
 
-        train_loss/=nbatch
-        logging.info('training: ith_epoche :{} mean loss:{} last loss:{}'.format(ith_epoche,train_loss,last_loss))
-        
-        if train_loss>last_loss+0.0001**ith_epoche:
-            opt.lr/= 0.1
-        last_loss = train_loss
+
+#train
+for i in range(epoch):
+
+	dataiter.reset()
+	endpointerr.reset()
+	tot_err = 0
+	count = 0
+	iteration = 0
+
+	for dbatch in dataiter:
+
+		iteration += 1
+		executor.arg_dict['img1'][:] = dbatch.data[0]
+		executor.arg_dict['img2'][:] = dbatch.data[1]
+
+		for j in range(len(flow_shapes)):
+			executor.arg_dict['flow_downsample%d' %(j+1)][:] = dbatch.label[j]
+
+		executor.forward(is_train=True)
+		executor.backward()
+
+		for index, key in enumerate(keys):
+			if 'img' not in key and 'stereo' not in key and 'flow' not in key:
+				opt.update(index, executor.arg_dict[key], grads[key], states[key])
+
+		endpointerr.update(executor.outputs[0],executor.arg_dict['flow_downsample1'])
+		logging.info('iteration :  {} th  Average End Point Error : {} '.format(iteration,endpointerr.get()))
+
+	cmd.con += 1
+	mx.model.save_checkpoint('./check_point/flow',cmd.con,net,executor.arg_dict,executor.arg_dict)
+	logging.info('epoch  : {} th : Average End point Error : {} '.format(i+1,endpointerr.get()[1]))
 
