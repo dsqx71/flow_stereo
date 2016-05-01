@@ -2,14 +2,22 @@ import mxnet as mx
 
 
 def flow_and_stereo_net(net_type='flow', loss1_scale = 0.003, loss2_scale = 0.005, loss3_scale = 0.01,loss4_scale= 0.02,loss5_scale = 0.08,loss6_scale = 0.32):
+    """
+        Dispnet: A large Dataset to train Convolutional networks for disparity, optical flow,and scene flow estimation
 
+        The  architectures of dispnet and flownet are the same
+
+        loss_scale : the weight of loss layer
+    """
     if net_type == 'flow':
         output_dim = 2
-    else:
+    elif net_type == 'stereo' :
         output_dim = 1
 
     img1 = mx.sym.Variable('img1')
     img2 = mx.sym.Variable('img2')
+
+    # labels with different shape
 
     downsample1 = mx.sym.Variable(net_type + '_downsample1')
     downsample2 = mx.sym.Variable(net_type + '_downsample2')
@@ -118,6 +126,7 @@ def flow_and_stereo_net(net_type='flow', loss1_scale = 0.003, loss2_scale = 0.00
     pr1 = mx.sym.Convolution(iconv1,pad=(1,1),kernel=(3,3),stride=(1,1),num_filter=output_dim,name='pr1')
     loss1 = mx.sym.MAERegressionOutput(data = pr1,label = downsample1,grad_scale=loss1_scale,name='loss1')
 
+    # dispnet and flownet have 6 L1 loss layers
     net = mx.sym.Group([loss1,loss2,loss3,loss4,loss5,loss6])
 
     return net
