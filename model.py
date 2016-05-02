@@ -1,190 +1,132 @@
-# -*- coding:utf-8 -*-  
 import mxnet as mx
-import numpy as np
-from collections import namedtuple
-from skimage import io
-from sklearn import utils
-from random import randint,shuffle,uniform,choice
-import cv2
-import matplotlib.pyplot as plt
 
 
-def get_network(network_type,batch_size):
-    relu = {}
-    conv = {}
-    weight = {}
-    bias = {}
-    relu[0]  = mx.sym.Variable('left')
-    relu[1]  = mx.sym.Variable('right')
-    relu[2]  = mx.sym.Variable('left_downsample')
-    relu[3]  = mx.sym.Variable('right_downsample')
-    label    = mx.sym.Variable('label')
-    for num_layer in range(1,5):
-        #blue parameter
-        weight[0]   = mx.sym.Variable('l%d_blue' % num_layer)
-        bias[0]     = mx.sym.Variable('bias%d_blue' % num_layer)
-        #red  parameter 
-        weight[1]   =  mx.sym.Variable('l%d_red' % num_layer)
-        bias[1]      = mx.sym.Variable('bias%d_red' % num_layer)
-        
-        if num_layer <= 2:
-            kernel = (3,3)
-            num_filter = 32
-        else:
-            kernel = (5,5)
-            num_filter = 200
-        
-        for j in range(4):
-            if network_type=='fully' and num_layer == 1:
-                conv[j]  = mx.sym.Convolution(data = relu[j] ,weight=weight[j/2],bias=bias[j/2],kernel=kernel,num_filter=num_filter,pad=(6,6))
-                relu[j]  = mx.sym.Activation( data = conv[j], act_type="relu")
-            else:
-                conv[j]  = mx.sym.Convolution(data = relu[j] ,weight=weight[j/2],bias=bias[j/2],kernel=kernel,num_filter=num_filter)
-                relu[j]  = mx.sym.Activation( data = conv[j], act_type="relu")
-        
-    if network_type!='fully':
-        flatten = {}        
-        for j in range(4):
-            flatten[j] = mx.sym.Flatten(data=relu[j])
+def flow_and_stereo_net(net_type='flow', loss1_scale = 0.003, loss2_scale = 0.005, loss3_scale = 0.01,loss4_scale= 0.02,loss5_scale = 0.08,loss6_scale = 0.32):
+    """
+        Dispnet: A large Dataset to train Convolutional networks for disparity, optical flow,and scene flow estimation
 
-        s1 = mx.sym.Dotproduct(data1=flatten[0],data2=flatten[1])
-        s2 = mx.sym.Dotproduct(data1=flatten[2],data2=flatten[3])
+        The  architectures of dispnet and flownet are the same
 
-        s1 = mx.sym.Reshape(data=s1,target_shape = (batch_size,1,1,1))
-        s2 = mx.sym.Reshape(data=s2,target_shape = (batch_size,1,1,1))
-       
-        c1 = mx.sym.Convolution(data=s1,no_bias=True,kernel=(1,1),num_filter=1,name='w1')
-        c2 = mx.sym.Convolution(data=s2,no_bias=True,kernel=(1,1),num_filter=1,name='w2')
-        
-        c1 = mx.sym.Flatten(c1)
-        c2 = mx.sym.Flatten(c2)
-        net  = c1 + c2
-        net  = mx.sym.LinearRegressionOutput(data = net , label = label )
-        return net
-    else:
-        net  = mx.sym.Group([relu[0],relu[1],relu[2],relu[3]])
-        return net
+        loss_scale : the weight of loss layer
+    """
+    if net_type == 'flow':
+        output_dim = 2
+    elif net_type == 'stereo' :
+        output_dim = 1
 
-DataBatch = namedtuple('DataBatch', ['data', 'label', 'pad', 'index'])
-class dataiter(mx.io.DataIter):
+    img1 = mx.sym.Variable('img1')
+    img2 = mx.sym.Variable('img2')
 
-    def __init__(self,img_dir,batch_size,ctx,datatype,high,low,rotate_range=3,contrast_range=1.3,brightness_range=0.7):
-    
-        self.batch_size = batch_size
-        self.reset()
-        self.img_dir  = img_dir
-        self.num_imgs = len(img_dir)
-        self.datatype = datatype   
-        self.ctx = ctx
-        self.rotate_range     = rotate_range
-        self.contrast_range   = contrast_range
-        self.brightness_range = brightness_range
-        self.high = high
-        self.low  = low
-        
-    def produce_patch(self,ith):
-        dis  = np.round(io.imread(self.img_dir[ith][0])/256.0).astype(int)
-        left = io.imread(self.img_dir[ith][1])  
-        right= io.imread(self.img_dir[ith][2])  
-        
-        left =( left - left.reshape(-1,3).mean(axis=0) )/left.reshape(-1,3).std(axis=0)
-        right=( right- right.reshape(-1,3).mean(axis=0))/right.reshape(-1,3).std(axis=0)
+    # labels with different shape
 
-        self.generate_patch_with_ground_truth(left,right,dis)  
-        self.now_img = self.img_dir[ith][0]
+    downsample1 = mx.sym.Variable(net_type + '_downsample1')
+    downsample2 = mx.sym.Variable(net_type + '_downsample2')
+    downsample3 = mx.sym.Variable(net_type + '_downsample3')
+    downsample4 = mx.sym.Variable(net_type + '_downsample4')
+    downsample5 = mx.sym.Variable(net_type + '_downsample5')
+    downsample6 = mx.sym.Variable(net_type + '_downsample6')
 
-   
-    def generate_patch_with_ground_truth(self,left,right,dis):
-        s1 = 6
-        s2 = 13
-        for y in xrange(s2,dis.shape[0]-s2):
-            for x in xrange(s2,dis.shape[1]-s2):
-                if dis[y,x]!=0:
-                    if np.random.random()>0.30:
-                        continue     
-                    d = dis[y,x]
-                    if x-d>=s2 :
-                        self.data[0].append( left[y-s1:y+1+s1,x-s1:x+1+s1,:])
-                        self.data[1].append(right[y-s1:y+1+s1,x-s1-d:x+1+s1-d,:])
-                        self.data[2].append(cv2.resize(left[y-s2:y+s2,x-s2:x+s2,:], (0,0), fx=0.5, fy=0.5))
-                        self.data[3].append(cv2.resize(right[y-s2:y+s2,x-s2-d:x+s2-d,:],(0,0), fx=0.5, fy=0.5))
-                        self.data_augment()
-                        self.labels.extend([1,1])
-                        while True:
-                            temp = [x - d + move for move in range(self.low,self.high+1) if x-d+move<dis.shape[1]-s2]
-                            temp.extend([x - d - move for move in range(self.low,self.high+1) if x-d-move>=s2]) 
-                            xn = np.random.choice(temp)
-                            #xn = np.random.randint(s2,dis.shape[1]-s2-1)
-                            if xn<dis.shape[1]-s2 and x-d != xn and xn>=s2:
-                                break
-                        self.data[0].append( left[y-s1:y+1+s1,    x-s1:x+1+s1,:])
-                        self.data[1].append(right[y-s1:y+1+s1,  xn-s1:xn+1+s1,:])
-                        self.data[2].append(cv2.resize(left[y-s2:y+s2,    x-s2:x+s2,:],(0,0),fx=0.5,fy=0.5))
-                        self.data[3].append(cv2.resize(right[y-s2:y+s2, xn-s2:xn+s2,:],(0,0),fx=0.5,fy=0.5))  
-                        self.data_augment()
-                        self.labels.extend([0,0]) 
-                        self.inventory += 4  
-        #utils.shuffle([self.data[0],self.data[1],self.data[2],self.data[3],self.labels])
-    def data_augment(self):
+    concat1 = mx.sym.Concat(img1,img2,dim=1,name='concat_image')
 
-        rotate = randint(-self.rotate_range,self.rotate_range)
-        rotation_matrix = cv2.getRotationMatrix2D((13/2, 13/2), rotate, 1)
-        beta  = uniform(0,self.brightness_range)
-        alpha = uniform(1,self.contrast_range)
-        flip_type = choice([-1,0,1])
-        for  i in range(4):
-            tmp = cv2.warpAffine(self.data[i][-1], rotation_matrix, (13, 13))
-            tmp = cv2.flip(tmp,flip_type)
-            tmp = cv2.multiply(tmp,np.array([alpha]))   
-            tmp = cv2.add(tmp,np.array([beta]))
-            self.data[i].append(tmp)
-           
-    def reset(self):
-    
-        self.index = 0
-        self.img_idx = 0
-        self.inventory = 0
-        self.data = [[],[],[],[]]
-        self.labels = []
+    conv1   = mx.sym.Convolution(concat1, pad = (3,3), kernel=(7,7),stride=(2,2),num_filter=64,name='conv1')
+    conv1   = mx.sym.LeakyReLU(data = conv1,  act_type = 'leaky', slope  = 0.1 )
 
-    def iter_next(self):
-        if self.inventory < self.batch_size:
-            if self.img_idx >= self.num_imgs:
-                return False
-            if self.datatype !='test':
-                self.produce_patch(self.img_idx)
-            else:
-                self.produce_patch_test(self.img_idx) 
-                #没写
-            self.img_idx+=1
-            return self.iter_next()
-        else: 
-            self.inventory -= self.batch_size
-            return True
+    conv2   = mx.sym.Convolution(conv1,  pad  = (2,2),  kernel=(5,5),stride=(2,2),num_filter=128,name='conv2')
+    conv2   = mx.sym.LeakyReLU(data = conv2, act_type =  'leaky', slope  = 0.1 )
 
-    def getdata(self):
-        
-        left  = mx.nd.array(np.asarray(self.data[0][:self.batch_size]).swapaxes(3,2).swapaxes(2,1),self.ctx)
-        right = mx.nd.array(np.asarray(self.data[1][:self.batch_size]).swapaxes(3,2).swapaxes(2,1),self.ctx)
-        left_downsample = mx.nd.array(np.asarray(self.data[2][:self.batch_size]).swapaxes(3,2).swapaxes(2,1),self.ctx)
-        right_downsample = mx.nd.array(np.asarray(self.data[3][:self.batch_size]).swapaxes(3,2).swapaxes(2,1),self.ctx)
-        del self.data[0][:self.batch_size]
-        del self.data[1][:self.batch_size]
-        del self.data[2][:self.batch_size]
-        del self.data[3][:self.batch_size]
-    
-        return [left,right,left_downsample,right_downsample]
-    
-    def getlabel(self):
-        if self.datatype !='test':
-            result =  mx.nd.array(np.array(self.labels[:self.batch_size]))
-            del self.labels[:self.batch_size]
-            return result
-        else :
-            return None
-    
-    def getindex(self):
-        return self.index
-    
-    def getpad(self):
-        return 0
+    conv3a   = mx.sym.Convolution(conv2, pad  = (2,2), kernel=(5,5),stride=(2,2),num_filter=256,name='conv3a')
+    conv3a   = mx.sym.LeakyReLU(data = conv3a,  act_type = 'leaky',slope  = 0.1 )
+
+    conv3b   = mx.sym.Convolution(conv3a,pad = (1,1) , kernel=(3,3),stride=(1,1),num_filter=256,name='conv3b')
+    conv3b   = mx.sym.LeakyReLU(data = conv3b ,act_type = 'leaky',slope = 0.1 )
+
+    conv4a   = mx.sym.Convolution(conv3b,pad=(1,1),kernel=(3,3),stride=(2,2),num_filter=512,name='conv4a')
+    conv4a  = mx.sym.LeakyReLU(data = conv4a,act_type = 'leaky',slope  = 0.1 )
+
+    conv4b = mx.sym.Convolution(conv4a,pad=(1,1),kernel=(3,3),stride=(1,1),num_filter=512,name='conv4b')
+    conv4b   = mx.sym.LeakyReLU(data = conv4b,act_type = 'leaky',slope  = 0.1 )
+
+    conv5a  = mx.sym.Convolution(conv4b,pad=(1,1),kernel=(3,3),stride=(2,2),num_filter=512,name='conv5a')
+    conv5a  = mx.sym.LeakyReLU(data = conv5a,act_type = 'leaky',slope  = 0.1 )
+
+    conv5b = mx.sym.Convolution(conv5a,pad= (1,1),kernel=(3,3),stride=(1,1),num_filter=512,name='conv5b')
+    conv5b  = mx.sym.LeakyReLU(data = conv5b,act_type = 'leaky',slope  = 0.1 )
+
+    conv6a = mx.sym.Convolution(conv5b,pad= (1,1),kernel=(3,3),stride=(2,2),num_filter=1024,name='conv6a')
+    conv6a  = mx.sym.LeakyReLU(data = conv6a,act_type = 'leaky',slope  = 0.1 )
+
+    conv6b = mx.sym.Convolution(conv6a,pad= (1,1),kernel=(3,3),stride=(1,1),num_filter=1024,name='conv6b')
+    conv6b  = mx.sym.LeakyReLU(data = conv6b,act_type = 'leaky',slope  = 0.1, )
+
+    pr6 = mx.sym.Convolution(conv6b,pad= (1,1),kernel=(3,3),stride=(1,1),num_filter=output_dim,name='pr6')
+
+    loss6 = mx.sym.MAERegressionOutput(data = pr6,label = downsample6,grad_scale=loss6_scale,name='loss6')
+
+    upsample_pr6to5 = mx.sym.Deconvolution(pr6,pad=(1,1),kernel=(4,4),stride=(2,2),num_filter=2,name='upsample_pr6to5')
+    upsample_pr6to5 = mx.sym.LeakyReLU(data = upsample_pr6to5,act_type = 'leaky',slope  = 0.1 )
+
+    upconv5 = mx.sym.Deconvolution(conv6b,pad=(1,1),kernel=(4,4),stride=(2,2),num_filter=512,name='upconv5')
+    upconv5 = mx.sym.LeakyReLU(data = upconv5,act_type = 'leaky',slope  = 0.1  )
+    concat_tmp = mx.sym.Concat(upconv5,upsample_pr6to5,conv5b,dim=1)
+
+    iconv5 = mx.sym.Convolution(concat_tmp,pad = (1,1),kernel=(3,3),stride=(1,1),num_filter = 512,name='iconv5')
+    iconv5 = mx.sym.LeakyReLU(data = iconv5,act_type = 'leaky',slope  = 0.1 )
+
+    pr5    = mx.sym.Convolution(iconv5, pad = (1,1),kernel=(3,3),stride=(1,1),num_filter = output_dim,name='pr5')
+    loss5 = mx.sym.MAERegressionOutput(data = pr5,label = downsample5,grad_scale=loss5_scale,name='loss5')
+
+    upconv4 = mx.sym.Deconvolution(iconv5,pad = (1,1),kernel= (4,4),stride = (2,2),num_filter=256,name='upconv4')
+    upconv4 = mx.sym.LeakyReLU(data = upconv4,act_type = 'leaky',slope  = 0.1 )
+
+    upsample_pr5to4 = mx.sym.Deconvolution(pr5,pad = (1,1),kernel= (4,4),stride=(2,2),num_filter=2,name='upsample_pr5to4')
+    upsample_pr5to4 = mx.sym.LeakyReLU(data = upsample_pr5to4,act_type = 'leaky',slope  = 0.1 )
+
+    concat_tmp2 = mx.sym.Concat(upsample_pr5to4,upconv4,conv4b)
+    iconv4  = mx.sym.Convolution(concat_tmp2,pad = (1,1),kernel = (3,3),stride=(1,1),num_filter=256,name='iconv4')
+    iconv4 =  mx.sym.LeakyReLU(data = iconv4,act_type = 'leaky',slope  = 0.1  )
+
+    pr4 = mx.sym.Convolution(iconv4,pad=(1,1),kernel=(3,3),stride=(1,1),num_filter=output_dim,name='pr4')
+    loss4 = mx.sym.MAERegressionOutput(data = pr4,label = downsample4,grad_scale=loss4_scale,name='loss4')
+
+    upconv3 = mx.sym.Deconvolution(iconv4,pad=(1,1),kernel=(4,4),stride=(2,2),num_filter=128,name='upconv3')
+    upconv3 = mx.sym.LeakyReLU(data = upconv3,act_type = 'leaky',slope  = 0.1 )
+
+    upsample_pr4to3 = mx.sym.Deconvolution(pr4,pad = (1,1),kernel= (4,4),stride=(2,2),num_filter=2,name='upsample_pr4to3')
+    upsample_pr4to3 = mx.sym.LeakyReLU(data = upsample_pr4to3,act_type = 'leaky',slope  = 0.1 )
+
+    concat_tmp3 = mx.sym.Concat(upsample_pr4to3,upconv3,conv3b)
+    iconv3 = mx.sym.Convolution(concat_tmp3,pad=(1,1),kernel=(3,3),stride=(1,1),num_filter = 128,name='iconv3')
+    iconv3 = mx.sym.LeakyReLU(data = iconv3,act_type = 'leaky',slope  = 0.1 )
+
+    pr3 = mx.sym.Convolution(iconv3,pad = (1,1), kernel = (3,3), stride = (1,1),num_filter = output_dim,name='pr3')
+    loss3 = mx.sym.MAERegressionOutput(data = pr3,label = downsample3,grad_scale=loss3_scale,name='loss3')
+
+    upconv2 = mx.sym.Deconvolution(iconv3,pad=(1,1),kernel=(4,4),stride=(2,2),num_filter=64,name='upconv2')
+    upconv2 = mx.sym.LeakyReLU(data = upconv2,act_type = 'leaky',slope  = 0.1  )
+
+    upsample_pr3to2 = mx.sym.Deconvolution(pr3,pad = (1,1),kernel= (4,4),stride=(2,2),num_filter=2,name='upsample_pr3to2')
+    upsample_pr3to2 = mx.sym.LeakyReLU(data = upsample_pr3to2,act_type = 'leaky',slope  = 0.1 )
+    concat_tmp4 = mx.sym.Concat(upsample_pr3to2,upconv2,conv2)
+
+    iconv2 = mx.sym.Convolution(concat_tmp4,pad = (1,1),kernel = (3,3),stride= (1,1),num_filter = 64,name='iconv2')
+    iconv2 = mx.sym.LeakyReLU(data = iconv2,act_type = 'leaky',slope  = 0.1 )
+    pr2 = mx.sym.Convolution(iconv2,pad = (1,1),kernel=(3,3),stride = (1,1),num_filter = output_dim,name='pr2')
+    loss2 = mx.sym.MAERegressionOutput(data = pr2,label = downsample2,grad_scale=loss2_scale,name='loss2')
+
+    upconv1 = mx.sym.Deconvolution(iconv2,pad=(1,1),kernel=(4,4),stride=(2,2),num_filter = 32,name='upconv1')
+    upconv1 = mx.sym.LeakyReLU(data = upconv1,act_type = 'leaky',slope  = 0.1 )
+
+    upsample_pr2to1 = mx.sym.Deconvolution(pr2,pad = (1,1),kernel= (4,4),stride=(2,2),num_filter=2,name='upsample_pr2to1')
+    upsample_pr2to1 = mx.sym.LeakyReLU(data = upsample_pr2to1,act_type = 'leaky',slope  = 0.1 )
+
+    concat_tmp5 = mx.sym.Concat(upsample_pr2to1,upconv1,conv1)
+    iconv1 = mx.sym.Convolution(concat_tmp5,pad=(1,1),kernel = (3,3),stride=(1,1),num_filter=32,name='iconv1')
+    iconv1 = mx.sym.LeakyReLU(data = iconv1,act_type = 'leaky',slope  = 0.1  )
+
+    pr1 = mx.sym.Convolution(iconv1,pad=(1,1),kernel=(3,3),stride=(1,1),num_filter=output_dim,name='pr1')
+    loss1 = mx.sym.MAERegressionOutput(data = pr1,label = downsample1,grad_scale=loss1_scale,name='loss1')
+
+    # dispnet and flownet have 6 L1 loss layers
+    net = mx.sym.Group([loss1,loss2,loss3,loss4,loss5,loss6])
+
+    return net
