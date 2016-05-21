@@ -26,3 +26,4 @@ python train.py --type stereo --continue  which_checkpoint  --lr learning_rate  
 ### Mxnet
 
 The im2rec.py isn't the mxnet original one,and change iter_image_recordio.cc from res = cv::imdecode(buf, -1) to
+

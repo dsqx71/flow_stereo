@@ -43,5 +43,3 @@ class D1all(mx.metric.EvalMetric):
         for i in xrange(gt_all.shape[0]):
             self.sum_metric += util.outlier_sum(pred_all[i][0], gt_all[i][0],tau)
         self.num_inst += gt_all.shape[0]
-
-

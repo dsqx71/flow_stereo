@@ -228,3 +228,4 @@ def weight_median_filter(i,left,radius,epsilon,mask):
         musk =  (imgaccum > 0.5*tot) & (dispout==0) & (mask) & (tot>0.05)
         dispout[musk] = d
     return dispout
+

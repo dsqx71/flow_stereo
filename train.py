@@ -65,7 +65,3 @@ model.fit(X = data,
 		  epoch_end_callback=mx.callback.do_checkpoint(cfg.MODEL.checkpoint_prefix + cmd.type),
 		  batch_end_callback=[mx.callback.Speedometer(batchsize[0],10)],
 		  kvstore='local_allreduce_device')
-
-
-
-

@@ -229,5 +229,4 @@ def flow_and_stereo_net(net_type,is_sparse,is_l1,
 
     # dispnet and flownet have 6 L1 loss layers
     net = mx.sym.Group([loss1,loss2,loss3,loss4,loss5,loss6])
-
     return net
