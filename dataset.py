@@ -4,34 +4,6 @@ from config import cfg
 import util
 import glob
 from skimage import io
-import os
-import mxnet as mx
-
-def get_imageRecord(dataset,batchsize,prefetch_buffer):
-
-    data_type = dataset.data_type
-    if data_type == 'flow':
-        raise ValueError('do not support flow data')
-
-    records = []
-    for index,i in  enumerate(['img1','img2','label']):
-
-        if not os.path.exists(cfg.record_prefix+'{}_{}_{}.rec'.format(dataset.name(),data_type,i)):
-
-            df = pd.DataFrame(dataset.dirs)
-            df[index].to_csv(cfg.record_prefix + '{}_{}_{}.lst'.format(dataset.name(),data_type,i),sep='\t',header=False)
-            args = ['python','im2rec.py',cfg.record_prefix +'{}_{}_{}'.format(dataset.name(),data_type,i) ,\
-                        '--root','','--resize','0','--quality','0','--num_thread','1','--encoding', '.png']
-            subprocess.call(args)
-
-        records.append(mx.io.ImageRecordIter(
-                                      path_imgrec = cfg.record_prefix+'{}_{}_{}.rec'.format(dataset.name(),data_type,i),
-                                      data_shape = dataset.shapes(),
-                                      batch_size = batchsize,
-                                      preprocess_threads = 3,
-                                      prefetch_buffer = prefetch_buffer,
-                                      shuffle = False))
-    return records
 
 class DataSet:
 
@@ -51,12 +23,11 @@ class DataSet:
         pass
 
     @staticmethod
-    def get_data(img_dir, sub_mean, data_type):
+    def get_data(img_dir, data_type):
         """
         Parameters
         ----------
         img_dir   : a tuple  (img1_dir,img2_dir,label_dir)
-        sub_mean  : indicate whether to subduce mean and divided by std
         data_type : 'stereo' or 'flow'
 
         return
@@ -258,74 +229,69 @@ class SythesisData(DataSet):
         return 'synthesisData'
 
     @staticmethod
-    def get_data(img_dir, sub_mean, data_type):
+    def get_data(img_dir,data_type):
 
         img1 = cv2.imread(img_dir[0])
         img2 = cv2.imread(img_dir[1])
 
-        if sub_mean:
-            img1 = (img1 * 0.0039216) - np.array([0.411451,0.432060,0.450141])
-            img2 = (img2 * 0.0039216) - np.array([0.410602,0.431021,0.448553])
-
         if data_type == 'stereo':
-
             label, scale = util.readPFM(img_dir[2])
             label = label *scale
-
-        else:
-
+        elif data_type == 'flow':
             label, scale = util.readPFM(img_dir[2])
             label = label[:, :, :2]
             label = label * scale
-
         return img1, img2, label, img_dir[0].split('/')[-1]
 
 class KittiDataset(DataSet):
-    """
-        Kitti stereo and optical : 2015 and 2012
-    """
-    def __init__(self, low, high, data_type,which='2012', prefix=cfg.dataset.kitti_prefix):
-        """
-            low,high : index of a sample
-        """
+
+    def __init__(self, data_type,which='2012',is_train=True,prefix=cfg.dataset.kitti_prefix):
+
         self.dirs = []
         self.data_type = data_type
+        if which == '2012' and is_train:
+            high = 194
+        if which == '2012' and is_train==False:
+            high = 195
+        if which == '2015':
+            high = 200
+
+        if is_train == False:
+            prefix = prefix + 'testing/'
 
         if self.data_type == 'stereo':
             if which == '2015':
-
-                gt_dir = 'disp_noc_0/'
+                gt_dir = 'disp_occ_0/'
                 imgl_dir = 'image_2/'
                 imgr_dir = 'image_3/'
-
             else:
-
-                gt_dir = 'disp_noc/'
+                gt_dir = 'disp_occ/'
                 imgl_dir = 'colored_0/'
                 imgr_dir = 'colored_1/'
 
-            for num in xrange(low, high):
-                dir_name = '%06d' % num
-                gt = prefix +  gt_dir + dir_name + '_10.png'.format(num)
-                imgl = prefix + imgl_dir + dir_name + '_10.png'.format(num)
-                imgr = prefix + imgr_dir + dir_name + '_10.png'.format(num)
+            for num in xrange(0, high):
+                dir_name = '%06d_10.png' % num
+                gt = prefix +  gt_dir + dir_name
+                imgl = prefix + imgl_dir + dir_name
+                imgr = prefix + imgr_dir + dir_name
                 self.dirs.append((gt, imgl, imgr))
         else:
             if which == '2015':
-                gt_dir = 'flow_noc_0/'
+                gt_dir = 'flow_occ_0/'
                 img1_dir = 'image_2/'
                 img2_dir = 'image_2/'
             else :
-                gt_dir = 'flow_noc/'
+                gt_dir = 'flow_occ/'
                 img1_dir = 'colored_0/'
                 img2_dir = 'colored_0/'
 
-            for num in xrange(low, high):
+            for num in xrange(0, high):
                 dir_name = '%06d' % num
                 gt = prefix + gt_dir + dir_name + '_10.png'.format(num)
                 img1 = prefix + img1_dir + dir_name + '_10.png'.format(num)
                 img2 = prefix + img2_dir + dir_name + '_11.png'.format(num)
                 self.dirs.append((gt, img1, img2))
+
 
     @staticmethod
     def shapes():
@@ -336,7 +302,7 @@ class KittiDataset(DataSet):
         return 'kitti'
 
     @staticmethod
-    def get_data(img_dir, sub_mean, data_type):
+    def get_data(img_dir, data_type):
 
         """
             input : img_dir tuple :
@@ -345,16 +311,14 @@ class KittiDataset(DataSet):
         img1 = cv2.imread(img_dir[1])
         img2 = cv2.imread(img_dir[2])
 
-        if sub_mean:
-            img1 = (img1 * 0.0039216) - np.array([0.411451, 0.432060, 0.450141])
-            img2 = (img2 * 0.0039216) - np.array([0.410602, 0.431021, 0.448553])
-
         try:
             if data_type == 'stereo':
                 label = np.round(io.imread(img_dir[0])/256.0).astype(int)
                 label[label<0.0001] = -1
+                return img1, img2, label, None
             else :
                 label = cv2.imread(img_dir[0],cv2.IMREAD_UNCHANGED)
+                valid = label[:, :, 0]
                 label = label[:, :, 1:]
                 label = label.astype(np.float64)
                 label = (label - 2 ** 15) / 64.0
@@ -362,14 +326,11 @@ class KittiDataset(DataSet):
                 tmp[:, :, 0] = label[:, :, 1]
                 tmp[:, :, 1] = label[:, :, 0]
                 label = tmp
+                return img1, img2, label, valid
             # train set or validation set have labels
-
-            img1 = cv2.resize(img1,(768,384))
-            img2 = cv2.resize(img2,(768,384))
-            return img1, img2, label, img_dir[0].split('/')[-1]
-        except IOError:
+        except :
             # test set don't have labels
-            return img1, img2, None, img_dir[0].split('/')[-1]
+            return img1, img2, None, None
 
 
 class FlyingChairsDataset(DataSet):
@@ -390,14 +351,14 @@ class FlyingChairsDataset(DataSet):
 
     @staticmethod
     def shapes():
-        return 3, 384, 512
+        return 384, 512
 
     @staticmethod
     def name():
         return 'Flyingthing3D'
 
     @staticmethod
-    def get_data(img_dir, sub_mean, data_type):
+    def get_data(img_dir, data_type):
         """
             input : img_dir tuple :
             output : first_img , second_img , flow
@@ -431,8 +392,4 @@ class FlyingChairsDataset(DataSet):
             assert first_img.shape == second_img.shape
             assert first_img.shape[:2] == flow.shape[:2]
 
-        if sub_mean:
-            first_img = (first_img - first_img.reshape(-1, 3).mean(axis=0)) / first_img.reshape(-1, 3).std(axis=0)
-            second_img = (second_img - second_img.reshape(-1, 3).mean(axis=0)) / second_img.reshape(-1, 3).std(axis=0)
-
-        return first_img, second_img, flow, img_dir[0].split('/')[-1]
+        return first_img, second_img, flow, None

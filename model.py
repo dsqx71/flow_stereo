@@ -33,6 +33,7 @@ class SparseRegressionLoss(mx.operator.NumpyOp):
 
         label = in_data[1]
         mask = (label > 0).astype(int)
+        mask2 = (label)
         y = out_data[0]
         dx = in_grad[0]
         if self.is_L1:

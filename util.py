@@ -7,7 +7,7 @@ import re
 import mxnet.ndarray as nd
 from config import cfg
 from guided_filter.core import filters
-
+import os
 def flow2color(flow):
     """
         plot optical flow
@@ -172,9 +172,7 @@ def plot_velocity_vector(flow):
     img = np.ones(flow.shape[:2]+(3,))
     for i in range(0,img.shape[0]-20,30):
         for j in range(0,img.shape[1]-20,30):
-
             try:
-
                 # opencv 3.1.0
                 if flow.shape[-1] == 2:
                     cv2.arrowedLine(img,(j,i),(j+int(round(flow[i,j,0])),i+int(round(flow[i,j,1]))),(150,0,0),2)
@@ -192,15 +190,8 @@ def plot_velocity_vector(flow):
     plt.imshow(img)
     plt.title('velocity vector')
 
-def check_validation(gt):
 
-    gt = gt.asnumpy()
-    for i in range(gt.shape[0]):
-        if (gt[i] <0).all():
-            return False
-    return True
-
-def weight_median_filter(i,left,radius,epsilon,mask):
+def weight_median_filter(i, left, radius, epsilon, mask):
 
     dispin  = i.copy()
     dispout = dispin.copy()
@@ -210,7 +201,7 @@ def weight_median_filter(i,left,radius,epsilon,mask):
     tot = np.zeros(i.shape)
     imgaccum = np.zeros(i.shape)
 
-    gf = filters.GuidedFilterColor(left.copy(),radius,epsilon)
+    gf = filters.GuidedFilterColor(left.copy(), radius, epsilon)
 
     for d in vecdisp:
         if d<=0:
@@ -225,7 +216,34 @@ def weight_median_filter(i,left,radius,epsilon,mask):
         ab = gf._computeCoefficients((dispin==d).astype(float))
         weight = gf._computeOutput(ab, gf._I)
         imgaccum = imgaccum + weight
-        musk =  (imgaccum > 0.5*tot) & (dispout==0) & (mask) & (tot>0.05)
+        musk =  (imgaccum > 0.5*tot) & (dispout==0) & (mask) & (tot> 0.0001)
         dispout[musk] = d
+
     return dispout
 
+def get_imageRecord(dataset,batchsize,prefetch_buffer):
+
+    data_type = dataset.data_type
+
+    if data_type == 'flow':
+        raise ValueError('do not support flow data')
+
+    records = []
+    for index,i in  enumerate(['img1','img2','label']):
+
+        if not os.path.exists(cfg.record_prefix+'{}_{}_{}.rec'.format(dataset.name(),data_type,i)):
+
+            df = pd.DataFrame(dataset.dirs)
+            df[index].to_csv(cfg.record_prefix + '{}_{}_{}.lst'.format(dataset.name(),data_type,i),sep='\t',header=False)
+            args = ['python','im2rec.py',cfg.record_prefix +'{}_{}_{}'.format(dataset.name(),data_type,i) ,\
+                        '--root','','--resize','0','--quality','0','--num_thread','1','--encoding', '.png']
+            subprocess.call(args)
+
+        records.append(mx.io.ImageRecordIter(
+                      path_imgrec = cfg.record_prefix+'{}_{}_{}.rec'.format(dataset.name(),data_type,i),
+                      data_shape = dataset.shapes(),
+                      batch_size = batchsize,
+                      preprocess_threads = 3,
+                      prefetch_buffer = prefetch_buffer,
+                      shuffle = False))
+    return records
