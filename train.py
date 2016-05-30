@@ -25,7 +25,7 @@ label_shapes = util.estimate_label_size(net, batchsize)
 if cmd.con == 0:
 	# restart
 	args = None
-    auxs = None
+	auxs = None
 else:
 	# continue
 	args, auxs = util.load_checkpoint(cfg.MODEL.checkpoint_prefix + cmd.type, cmd.con)

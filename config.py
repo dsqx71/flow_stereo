@@ -43,4 +43,4 @@ cfg.dataset.scale = (0.5, 2.0)
 # training batch size
 batchsize = (8, 3, 384, 768)
 
-ctx = [mx.gpu(i) for i in range(5, 7)]
+ctx = [mx.gpu(i) for i in range(4, 6)]

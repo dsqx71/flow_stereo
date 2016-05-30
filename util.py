@@ -89,7 +89,6 @@ def load_model(name, epoch, net, batch_shape, ctx, network_type='write'):
 
     return executor
 
-
 def readPFM(file):
     """
         read .PFM file
