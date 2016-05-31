@@ -1,7 +1,8 @@
 import mxnet as mx
 import numpy as np
+import util
 import matplotlib.pyplot as plt
-from numba import  autojit
+import time
 
 class EndPointErr(mx.metric.EvalMetric):
     """
@@ -10,17 +11,15 @@ class EndPointErr(mx.metric.EvalMetric):
     def __init__(self):
         super(EndPointErr, self).__init__('End Point Error')
 
-    @autojit
-    def update(self, pred, gt,plot_err=False):
+    def update(self, pred, gt):
 
-        r = (pred - gt).asnumpy()
+        pred = pred[0].asnumpy()
+        gt = gt[0].asnumpy()
+
+        r = pred - gt
         r = np.power(r, 2)
         r = np.sqrt(r.sum(axis=1))
-        if plot_err :
-            plt.figure()
-            plt.imshow(r[0])
-            plt.colorbar()
-            plt.title('Err')
+
         self.sum_metric += r.mean()
         self.num_inst += 1.0
 
@@ -33,21 +32,14 @@ class D1all(mx.metric.EvalMetric):
     def __init__(self):
         super(D1all, self).__init__('D1all')
 
-    @autojit
-    def update(self, pred, gt,plot=False,tau = 3):
-        pred = pred.asnumpy()[0][0]
-        gt   = gt.asnumpy()[0][0]
-        outlier = np.zeros(gt.shape)
-        mask = gt > 0
-        gt = np.round(gt[mask] / 256.0)
-        pred = pred[mask]
-        err = np.abs(pred - gt)
-        outlier[mask] = err
+    def update(self, pred, gt,tau = 3):
 
-        if plot:
-            plt.figure()
-            plt.imshow(outlier)
-            plt.title('Outlier')
-        self.sum_metric += (err[err>tau]/gt[err>tau].astype(np.float32) > 0.05).sum()/float(mask.sum())
-        self.num_inst += gt.shape[0]
+        pred = pred[0]
+        gt = gt[0]
 
+        pred_all = pred.asnumpy()
+        gt_all = gt.asnumpy()
+
+        for i in xrange(gt_all.shape[0]):
+            self.sum_metric += util.outlier_sum(pred_all[i][0], gt_all[i][0],tau)
+        self.num_inst += gt_all.shape[0]

@@ -4,8 +4,10 @@ import numpy as np
 import cv2
 import sys
 import re
-
-
+import mxnet.ndarray as nd
+from config import cfg
+from guided_filter.core import filters
+import os
 def flow2color(flow):
     """
         plot optical flow
@@ -27,12 +29,10 @@ def estimate_label_size(net, batch_shape):
     """
         estimate label shape given by input shape
     """
-
     args = dict(zip(net.list_outputs(), net.infer_shape(img1=batch_shape, img2=batch_shape)[1]))
     shapes = []
     for key in args:
         shapes.append(args[key][2:])
-
     shapes = sorted(shapes, key=lambda t: t[0], reverse=True)
     return shapes
 
@@ -49,6 +49,20 @@ def init_param(scale, args):
             else:
                 init(key,args[key])
 
+def load_checkpoint(prefix, epoch):
+
+    save_dict = nd.load('%s-%04d.params' % (prefix, epoch))
+    arg_params = {}
+    aux_params = {}
+
+    for k, v in save_dict.items():
+        tp, name = k.split(':', 1)
+        if tp == 'arg':
+            arg_params[name] = v
+        if tp == 'aux':
+            aux_params[name] = v
+
+    return arg_params,aux_params
 
 def load_model(name, epoch, net, batch_shape, ctx, network_type='write'):
     """
@@ -56,9 +70,10 @@ def load_model(name, epoch, net, batch_shape, ctx, network_type='write'):
         return executor
     """
     data_sym = ['img1', 'img2']
-    _, args, _ = mx.model.load_checkpoint(name, epoch)
+    args,aux = load_checkpoint(name, epoch)
+
     executor = net.simple_bind(ctx=ctx, grad_req=network_type, img1=batch_shape, img2=batch_shape)
-    init = mx.init.Orthogonal(scale=1.0, rand_type='normal')
+    init = mx.init.Orthogonal(scale=cfg.MODEL.weight_init_scale, rand_type='normal')
 
     for key in executor.arg_dict:
         if key in data_sym or 'stereo' in key or 'flow' in key:
@@ -69,8 +84,10 @@ def load_model(name, epoch, net, batch_shape, ctx, network_type='write'):
             else:
                 init(key, executor.arg_dict[key])
 
-    return executor
+    for key in executor.aux_dict:
+        executor.aux_dict[key][:] = aux[key]
 
+    return executor
 
 def readPFM(file):
     """
@@ -137,3 +154,95 @@ def writePFM(file, image, scale=1):
         scale = -scale
     file.write('%f\n' % scale)
     image.tofile(file)
+
+def outlier_sum(pred,gt,tau=3):
+
+    outlier = np.zeros(gt.shape)
+    mask = gt > 0
+    gt = np.round(gt[mask])
+    pred = pred[mask]
+    err = np.abs(pred-gt)
+    outlier[mask] = err
+
+    return (err[err>tau]/(gt[err>tau].astype(np.float32)+1) > 0.05).sum()/float(mask.sum()),outlier
+
+def plot_velocity_vector(flow):
+
+    img = np.ones(flow.shape[:2]+(3,))
+    for i in range(0,img.shape[0]-20,30):
+        for j in range(0,img.shape[1]-20,30):
+            try:
+                # opencv 3.1.0
+                if flow.shape[-1] == 2:
+                    cv2.arrowedLine(img,(j,i),(j+int(round(flow[i,j,0])),i+int(round(flow[i,j,1]))),(150,0,0),2)
+                else:
+                    cv2.arrowedLine(img, (j, i), (j + int(round(flow[i, j, 0])), i ), (150, 0, 0), 2)
+
+            except AttributeError:
+                # opencv 2.4.8
+                if flow.shape[-1] == 2:
+                    cv2.line(img, (j, i), (j + int(round(flow[i, j, 0])), i + int(round(flow[i, j, 1]))), (150, 0, 0), 2)
+                else:
+                    cv2.line(img,pt1 =  (j, i),pt2= (j + int(round(flow[i, j])), i), color = (150, 0, 0),thickness =  1)
+
+    plt.figure()
+    plt.imshow(img)
+    plt.title('velocity vector')
+
+
+def weight_median_filter(i, left, radius, epsilon, mask):
+
+    dispin  = i.copy()
+    dispout = dispin.copy()
+    dispout[mask] = 0
+    vecdisp = np.unique(dispin)
+
+    tot = np.zeros(i.shape)
+    imgaccum = np.zeros(i.shape)
+
+    gf = filters.GuidedFilterColor(left.copy(), radius, epsilon)
+
+    for d in vecdisp:
+        if d<=0:
+            continue
+        ab = gf._computeCoefficients((dispin==d).astype(float))
+        weight = gf._computeOutput(ab, gf._I)
+        tot = tot + weight
+
+    for d in vecdisp:
+        if d<=0:
+            continue
+        ab = gf._computeCoefficients((dispin==d).astype(float))
+        weight = gf._computeOutput(ab, gf._I)
+        imgaccum = imgaccum + weight
+        musk =  (imgaccum > 0.5*tot) & (dispout==0) & (mask) & (tot> 0.0001)
+        dispout[musk] = d
+
+    return dispout
+
+def get_imageRecord(dataset,batchsize,prefetch_buffer):
+
+    data_type = dataset.data_type
+
+    if data_type == 'flow':
+        raise ValueError('do not support flow data')
+
+    records = []
+    for index,i in  enumerate(['img1','img2','label']):
+
+        if not os.path.exists(cfg.record_prefix+'{}_{}_{}.rec'.format(dataset.name(),data_type,i)):
+
+            df = pd.DataFrame(dataset.dirs)
+            df[index].to_csv(cfg.record_prefix + '{}_{}_{}.lst'.format(dataset.name(),data_type,i),sep='\t',header=False)
+            args = ['python','im2rec.py',cfg.record_prefix +'{}_{}_{}'.format(dataset.name(),data_type,i) ,\
+                        '--root','','--resize','0','--quality','0','--num_thread','1','--encoding', '.png']
+            subprocess.call(args)
+
+        records.append(mx.io.ImageRecordIter(
+                      path_imgrec = cfg.record_prefix+'{}_{}_{}.rec'.format(dataset.name(),data_type,i),
+                      data_shape = dataset.shapes(),
+                      batch_size = batchsize,
+                      preprocess_threads = 3,
+                      prefetch_buffer = prefetch_buffer,
+                      shuffle = False))
+    return records
