@@ -1,7 +1,6 @@
 import mxnet as mx
 import numpy as np
-
-from symbol.dispnet_symbol import SparseRegressionLoss
+# from symbol.dispnet_symbol import SparseRegressionLoss
 
 
 @mx.operator.register("argmax")
@@ -46,33 +45,51 @@ class Argmaxop(mx.operator.NumpyOp):
         dx = dx.reshape(shape[0],shape[2],shape[3],shape[1]).transpose(0,3,1,2)
         in_grad[0][:] = dx
 
-def get_conv(name, data, num_filter, kernel, stride, pad,
-             with_relu, bn_momentum=0.9, dilate=(1, 1)):
-    conv = mx.symbol.Convolution(
-        name=name,
-        data=data,
-        num_filter=num_filter,
-        kernel=kernel,
-        stride=stride,
-        pad=pad,
-        dilate=dilate,
-        no_bias=True,
-        workspace= 4096
-    )
+def get_conv(name, data, num_filter, kernel, stride, pad, with_relu, bn_momentum=0.9, dilate=(1, 1), weight=None, bias=None,
+             is_conv=True):
+    if is_conv is True:
+        if weight is None:
+            conv = mx.symbol.Convolution(
+                name=name,
+                data=data,
+                num_filter=num_filter,
+                kernel=kernel,
+                stride=stride,
+                pad=pad,
+                dilate=dilate,
+                no_bias=False,
+                workspace=4096)
+        else:
+            conv = mx.symbol.Convolution(
+                name=name,
+                data=data,
+                num_filter=num_filter,
+                kernel=kernel,
+                stride=stride,
+                pad=pad,
+                weight=weight,
+                bias=bias,
+                dilate=dilate,
+                no_bias=False,
+                workspace=4096)
+    else:
+        conv = mx.symbol.Deconvolution(
+            name=name,
+            data=data,
+            num_filter=num_filter,
+            kernel=kernel,
+            stride=stride,
+            pad=pad,
+            no_bias=False,
+            workspace=4096)
     bn = mx.symbol.BatchNorm(
         name=name + '_bn',
         data=conv,
         fix_gamma=False,
         momentum=bn_momentum,
-        # Same with https://github.com/soumith/cudnn.torch/blob/master/BatchNormalization.lua
-        eps=1e-5 + 1e-10 # issue of cudnn
-    )
-    return (
-        # It's better to remove ReLU here
-        # https://github.com/gcr/torch-residual-networks
-        mx.symbol.LeakyReLU(name=name + '_prelu', act_type='prelu', data=bn)
-        if with_relu else bn
-    )
+        eps=1e-5 + 1e-10)
+
+    return mx.sym.LeakyReLU(data = bn,act_type = 'leaky',slope  = 0.1 ) if with_relu else bn
 
 def get_loss(data,label,grad_scale,name,get_data=False, is_sparse = False):
 
@@ -85,12 +102,12 @@ def get_loss(data,label,grad_scale,name,get_data=False, is_sparse = False):
     return (loss,data) if get_data else loss
 
 
-def initila_block(data, name):
+def initila_block(data, name, num_filter=13):
     # TODO: input shape: (1, 3, 1086, 2173) shape incorrect
     conv = mx.symbol.Convolution(
         name="initial_conv" + name,
         data=data,
-        num_filter=13,
+        num_filter=num_filter,
         kernel=(3, 3),
         stride=(2, 2),
         pad=(1, 1),
@@ -214,9 +231,9 @@ def make_block(name, data, num_filter, bn_momentum,
     regular = mx.symbol.LeakyReLU(name=name + '_expansion_prelu', act_type='prelu', data=regular)
     return regular
 
-def level1(data,name,bn_momentum,num=4,down_sample=True):
+def level1(data,name,bn_momentum,num=4,down_sample=True,factor=1):
 
-    num_filter = 64
+    num_filter = 64*factor
     data = data0 = make_block(name="bottleneck1.0" + name, data=data, num_filter=num_filter,
                               bn_momentum=bn_momentum, down_sample=down_sample, up_sample=False)
     for block in range(num):
@@ -335,91 +352,7 @@ def get_body(bn_momentum,is_sparse=False, net_type = 'stereo'):
     return loss
 
 
-def get_body2(bn_momentum,is_sparse=False):
-
-    img1 = mx.sym.Variable('img1')
-    img2 = mx.sym.Variable('img2')
-
-    net_type = 'stereo'
-    label1 = mx.sym.Variable(net_type + '_downsample1')
-    # label2 = mx.sym.Variable(net_type + '_downsample1')
-
-    init_img1 = initila_block(img1, 'img1')
-    init_img2 = initila_block(img2, 'img2')
-
-    corr1 = mx.sym.Correlation1D(data1=init_img1, data2=init_img2, pad_size=32, kernel_size=1,
-                                 max_displacement=32, stride1=1, stride2=1,single_side=-1)
-
-    level1_img1 = level1(init_img1, 'img1', bn_momentum, 8)
-    level1_img2 = level1(init_img2, 'img2', bn_momentum, 8)
-
-    corr2 = mx.sym.Correlation1D(data1=level1_img1, data2=level1_img2, pad_size=128, kernel_size=1,
-                                max_displacement=128, stride1=1, stride2=1,single_side=-1)
-
-    data = mx.sym.Concat(level1_img1,level1_img2, corr2)
-
-    #level 2
-    num_filter = 128
-    data = data0 = make_block(name="bottleneck2.0", data=data, num_filter=num_filter,
-                              bn_momentum=bn_momentum, down_sample=True, up_sample=False)
-    data = make_block(name="bottleneck2.1", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
-    data = make_block(name="bottleneck2.2", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
-                      dilated=(2, 2))
-    data = make_block(name="bottleneck2.3", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
-                      asymmetric=5)
-    data = make_block(name="bottleneck2.4", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
-                      dilated=(4, 4))
-    data = make_block(name="bottleneck2.5", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
-    data = make_block(name="bottleneck2.6", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
-                      dilated=(8, 8))
-    data = make_block(name="bottleneck2.7", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
-                      asymmetric=5)
-    num_filter = 256
-    data = make_block(name="bottleneck2.8", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
-                      dilated=(16, 16))
-
-    data = make_block(name="bottleneck2.9", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
-
-    data = make_block(name="bottleneck2.10", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
-                      dilated=(32, 32))
-    data0 = make_block(name="projection2", data=data0, num_filter=num_filter, bn_momentum=bn_momentum)
-    data = data + data0
-
-    ##level 3
-    num_filter = 64
-    data = make_block(name="bottleneck4.0", data=data, num_filter=num_filter,
-                              bn_momentum=bn_momentum,
-                              up_sample=True)
-    data = mx.sym.Concat(data,corr2)
-    data0 = data = make_block(name="bottleneck4.1", data=data, num_filter=num_filter,  bn_momentum=bn_momentum)
-    data = make_block(name="bottleneck4.2", data=data, num_filter=num_filter,  bn_momentum=bn_momentum)
-    data = make_block(name="bottleneck4.3", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
-    data = data + data0
-
-    pr2 = get_conv(name='pr2', data=data, num_filter=5, kernel=(3, 3), stride=(1, 1), pad=(1, 1), with_relu=False,
-                   bn_momentum=bn_momentum, dilate=(1, 1))
-    data = mx.sym.Concat(data, pr2)
-    # ##level 4
-    num_filter = 16
-    data  = make_block(name="bottleneck5.0", data=data, num_filter=num_filter,
-                       bn_momentum=bn_momentum,
-                       up_sample=True)
-    data = mx.sym.Concat(data, corr1, init_img1)
-    data0 = data = make_block(name="bottleneck5.1", data=data, num_filter=num_filter,  bn_momentum=bn_momentum)
-    data = make_block(name="bottleneck5.2", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
-    data = make_block(name="bottleneck5.3", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
-    data = data + data0
-    data = mx.symbol.Deconvolution(data=data, kernel=(16, 16), stride=(2, 2), num_filter=1, name="fullconv")
-    data = mx.symbol.Crop(*[data, img1], name="fullconv_crop")
-
-    # loss2 = get_loss(pr2, label2,0.8,name='loss2')
-    loss = get_loss(data,label1, 1.0, name='loss1')
-
-    return loss
-
-
-
-def get_body3(bn_momentum,is_sparse=False, net_type='stereo'):
+def get_body2(bn_momentum,is_sparse=False, net_type = 'stereo'):
 
     img1 = mx.sym.Variable('img1')
     img2 = mx.sym.Variable('img2')
@@ -430,57 +363,17 @@ def get_body3(bn_momentum,is_sparse=False, net_type='stereo'):
         output_channel = 2
 
     label1 = mx.sym.Variable(net_type + '_downsample1')
+    label2 = mx.sym.Variable(net_type + '_downsample2')
+    label3 = mx.sym.Variable(net_type + '_downsample3')
 
-    init_img1 = initila_block(img1, 'img1')
-    init_img2 = initila_block(img2, 'img2')
-
-    level1_img1 = level1(init_img1, 'img1', bn_momentum, 8, down_sample=False)
-    level1_img2 = level1(init_img2, 'img2', bn_momentum, 8, down_sample=False)
-
-    corr = mx.sym.Correlation1D(data1=level1_img1, data2=level1_img2, pad_size=256, kernel_size=1,
-                                max_displacement=256, stride1=1, stride2=2,single_side=-1)
-    # argmax = Argmaxop()
-    # corr = argmax(data=corr)
-    data = mx.sym.Concat(level1_img1, level1_img2, corr)
-
-    num_filter = 64
-    data = make_block(name="bottleneck0.0", data=data, num_filter=num_filter,
-                      bn_momentum=bn_momentum,
-                      up_sample=False)
-    data0 = data = make_block(name="bottleneck0.1", data=data, num_filter=num_filter,  bn_momentum=bn_momentum)
-    data = mx.sym.Concat(data, init_img1, init_img2)
-    data = make_block(name="bottleneck0.2", data=data, num_filter=num_filter,  bn_momentum=bn_momentum)
-    data = make_block(name="bottleneck0.3", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
-    data = data + data0
-    data = mx.symbol.Convolution(name='pr', data=data, num_filter=output_channel, kernel=(3,3),
-                                 stride=(1,1), pad=(1,1), dilate=(1,1), no_bias=False)
-
-    loss = get_loss(data,label1, 1.0, name='loss1')
-
-    return loss
-
-
-def get_body4(bn_momentum,is_sparse=False, net_type = 'stereo'):
-
-    img1 = mx.sym.Variable('img1')
-    img2 = mx.sym.Variable('img2')
-
-    if net_type == 'stereo':
-        output_channel = 1
-    elif net_type == 'flow':
-        output_channel = 2
-
-    label1 = mx.sym.Variable(net_type + '_downsample1')
-    # label2 = mx.sym.Variable(net_type + '_downsample1')
-
-    init_img1 = initila_block(img1, 'img1')
-    init_img2 = initila_block(img2, 'img2')
+    init_img1 = initila_block(img1, 'img1', 64)
+    init_img2 = initila_block(img2, 'img2', 64)
 
     corr1 = mx.sym.Correlation1D(data1=init_img1, data2=init_img2, pad_size=32, kernel_size=1,
                                  max_displacement=32, stride1=1, stride2=1,single_side=-1)
 
-    level1_img1 = level1(init_img1, 'img1', bn_momentum, 10)
-    level1_img2 = level1(init_img2, 'img2', bn_momentum, 10)
+    level1_img1 = level1(init_img1, 'img1', bn_momentum, 4,factor=2)
+    level1_img2 = level1(init_img2, 'img2', bn_momentum, 4,factor=2)
 
     corr2 = mx.sym.Correlation1D(data1=level1_img1, data2=level1_img2, pad_size=128, kernel_size=1,
                                 max_displacement=128, stride1=1, stride2=1,single_side=-1)
@@ -504,12 +397,203 @@ def get_body4(bn_momentum,is_sparse=False, net_type = 'stereo'):
                       dilated=(8, 8))
     data = make_block(name="bottleneck2.7", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
                       asymmetric=5)
-
     data = make_block(name="bottleneck2.8", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
                       dilated=(16, 16))
-
     data = make_block(name="bottleneck2.9", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = make_block(name="bottleneck2.10", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(32, 32))
+    data0 = make_block(name="projection2", data=data0, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = data + data0
 
+    data2 = level3(data, bn_momentum)
+    data = mx.sym.Concat(data, data2)
+    pr3 = mx.sym.Convolution(data, pad=(1, 1), kernel=(3, 3), stride=(1, 1), num_filter=1, name='pr3')
+    data = mx.sym.Concat(data, pr3)
+
+    num_filter = 64
+    data = make_block(name="bottleneck4.0", data=data, num_filter=num_filter,
+                      bn_momentum=bn_momentum, up_sample=True)
+    data = mx.sym.Concat(data, corr2)
+    data0 = data = make_block(name="bottleneck4.1", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = mx.sym.Concat(data, level1_img1, level1_img2)
+    data = make_block(name="bottleneck4.2", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = data + data0
+    pr2 = mx.sym.Convolution(data, pad=(1, 1), kernel=(3, 3), stride=(1, 1), num_filter=1, name='pr2')
+    data = mx.sym.Concat(data, pr2)
+    ##level 4
+    num_filter = 32
+    data = make_block(name="bottleneck5.0", data=data, num_filter=num_filter,
+                      bn_momentum=bn_momentum, up_sample=True)
+    data = mx.sym.Concat(data, corr1, init_img1, init_img1)
+    data = make_block(name="bottleneck5.1", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    pr1 = mx.symbol.Convolution(name='pr1', data=data, num_filter=1, kernel=(3, 3), stride=(1, 1), pad=(1, 1),
+                                dilate=(1, 1), no_bias=False)
+
+    loss1 = get_loss(pr1, label1, 1.0, name='loss1')
+    loss2 = get_loss(pr2, label2, 0.0, name='loss2')
+    loss3 = get_loss(pr3, label3, 0.0, name='loss3')
+
+    loss = mx.sym.Group([loss1, loss2, loss3])
+
+    return loss
+
+
+
+def get_body3(bn_momentum,is_sparse=False, net_type = 'stereo'):
+
+    img1 = mx.sym.Variable('img1')
+    img2 = mx.sym.Variable('img2')
+
+    if net_type == 'stereo':
+        output_channel = 1
+    elif net_type == 'flow':
+        output_channel = 2
+
+    label1 = mx.sym.Variable(net_type + '_downsample1')
+    label2 = mx.sym.Variable(net_type + '_downsample2')
+    label3 = mx.sym.Variable(net_type + '_downsample3')
+    init_img1 = initila_block(img1, 'img1', 64)
+    init_img2 = initila_block(img2, 'img2', 64)
+
+    corr1 = mx.sym.Correlation1D(data1=init_img1, data2=init_img2, pad_size=32, kernel_size=1,
+                                 max_displacement=32, stride1=1, stride2=1,single_side=-1)
+
+    level1_img1 = level1(init_img1, 'img1', bn_momentum, 4,factor=2)
+    level1_img2 = level1(init_img2, 'img2', bn_momentum, 4,factor=2)
+
+    corr2 = mx.sym.Correlation1D(data1=level1_img1, data2=level1_img2, pad_size=128, kernel_size=1,
+                                max_displacement=128, stride1=1, stride2=1,single_side=-1)
+
+    data = mx.sym.Concat(level1_img1, level1_img2, corr2)
+
+    #level 2
+    num_filter = 128
+    data = data0 = make_block(name="bottleneck2.0", data=data, num_filter=num_filter,
+                              bn_momentum=bn_momentum, down_sample=True, up_sample=False)
+    data = make_block(name="bottleneck2.1", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = make_block(name="bottleneck2.2", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(2, 2))
+    data = make_block(name="bottleneck2.3", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      asymmetric=5)
+    data = data0 + data
+    data = make_block(name="bottleneck2.4", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(4, 4))
+    data = make_block(name="bottleneck2.5", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = make_block(name="bottleneck2.6", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(8, 8))
+    data = make_block(name="bottleneck2.7", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      asymmetric=5)
+    data = make_block(name="bottleneck2.8", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(16, 16))
+    data = make_block(name="bottleneck2.9", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = make_block(name="bottleneck2.10", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(32, 32))
+    data0 = make_block(name="projection2", data=data0, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = data + data0
+
+    ##level 3
+
+    num_filter = 256
+    data = data0 = make_block(name="bottleneck3.1", data=data, num_filter=num_filter,
+                              bn_momentum=bn_momentum)
+    data = make_block(name="bottleneck3.2", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(2, 2))
+    data = make_block(name="bottleneck3.3", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      asymmetric=5)
+    data = make_block(name="bottleneck3.4", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(4, 4))
+    data = make_block(name="bottleneck3.5", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = make_block(name="bottleneck3.6", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(8, 8))
+    data = make_block(name="bottleneck3.7", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      asymmetric=5)
+    data = make_block(name="bottleneck3.8", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(16, 16))
+    data = make_block(name="bottleneck3.9", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = make_block(name="bottleneck3.10", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(32, 32))
+    data0 = make_block(name="projection3", data=data0, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = data + data0
+    pr3 = mx.sym.Convolution(data, pad=(1, 1), kernel=(3, 3), stride=(1, 1), num_filter=1, name='pr3')
+    data = mx.sym.Concat(data, pr3)
+
+    num_filter = 64
+    data = make_block(name="bottleneck4.0", data=data, num_filter=num_filter,
+                      bn_momentum=bn_momentum, up_sample=True)
+    data = mx.sym.Concat(data, corr2)
+    data0 = data = make_block(name="bottleneck4.1", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = mx.sym.Concat(data, level1_img1, level1_img2)
+    data = make_block(name="bottleneck4.2", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = data + data0
+    pr2 = mx.sym.Convolution(data, pad=(1, 1), kernel=(3, 3), stride=(1, 1), num_filter=1, name='pr2')
+    data = mx.sym.Concat(data, pr2)
+    ##level 4
+    num_filter = 32
+    data = make_block(name="bottleneck5.0", data=data, num_filter=num_filter,
+                      bn_momentum=bn_momentum, up_sample=True)
+    data = mx.sym.Concat(data, corr1, init_img1, init_img1)
+    data = make_block(name="bottleneck5.1", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    pr1 = mx.symbol.Convolution(name='pr1', data=data, num_filter=1, kernel=(3, 3), stride=(1, 1), pad=(1, 1),
+                                dilate=(1, 1), no_bias=False)
+
+    loss1 = get_loss(pr1, label1, 1.0, name='loss1')
+    loss2 = get_loss(pr2, label2, 0.0, name='loss2')
+    loss3 = get_loss(pr3, label3, 0.0, name='loss3')
+
+    loss = mx.sym.Group([loss1, loss2, loss3])
+
+    return loss
+
+
+def get_body4(bn_momentum,is_sparse=False, net_type = 'stereo'):
+
+    img1 = mx.sym.Variable('img1')
+    img2 = mx.sym.Variable('img2')
+
+    if net_type == 'stereo':
+        output_channel = 1
+    elif net_type == 'flow':
+        output_channel = 2
+
+    label1 = mx.sym.Variable(net_type + '_downsample1')
+    label2 = mx.sym.Variable(net_type + '_downsample2')
+    label3 = mx.sym.Variable(net_type + '_downsample3')
+
+
+    init_img1 = initila_block(img1, 'img1')
+    init_img2 = initila_block(img2, 'img2')
+
+    corr1 = mx.sym.Correlation1D(data1=init_img1, data2=init_img2, pad_size=32, kernel_size=1,
+                                 max_displacement=32, stride1=1, stride2=1,single_side=-1)
+
+    level1_img1 = level1(init_img1, 'img1', bn_momentum, 4)
+    level1_img2 = level1(init_img2, 'img2', bn_momentum, 4)
+
+    corr2 = mx.sym.Correlation1D(data1=level1_img1, data2=level1_img2, pad_size=128, kernel_size=1,
+                                max_displacement=128, stride1=1, stride2=1,single_side=-1)
+
+    data = mx.sym.Concat(level1_img1, level1_img2, corr2)
+
+    #level 2
+    num_filter = 128
+    data = data0 = make_block(name="bottleneck2.0", data=data, num_filter=num_filter,
+                              bn_momentum=bn_momentum, down_sample=True, up_sample=False)
+    data = make_block(name="bottleneck2.1", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = make_block(name="bottleneck2.2", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(2, 2))
+    data = make_block(name="bottleneck2.3", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      asymmetric=5)
+    data = data0 + data
+    data = make_block(name="bottleneck2.4", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(4, 4))
+    data = make_block(name="bottleneck2.5", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
+    data = make_block(name="bottleneck2.6", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(8, 8))
+    data = make_block(name="bottleneck2.7", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      asymmetric=5)
+    data = make_block(name="bottleneck2.8", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
+                      dilated=(16, 16))
+    data = make_block(name="bottleneck2.9", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
     data = make_block(name="bottleneck2.10", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
                       dilated=(32, 32))
     data0 = make_block(name="projection2", data=data0, num_filter=num_filter, bn_momentum=bn_momentum)
@@ -525,7 +609,6 @@ def get_body4(bn_momentum,is_sparse=False, net_type = 'stereo'):
                       asymmetric=5)
     data = make_block(name="bottleneck3.4", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
                       dilated=(4, 4))
-    num_filter = 512
     data = make_block(name="bottleneck3.5", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
     data = make_block(name="bottleneck3.6", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
                       dilated=(8, 8))
@@ -534,32 +617,36 @@ def get_body4(bn_momentum,is_sparse=False, net_type = 'stereo'):
     data = make_block(name="bottleneck3.8", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
                       dilated=(16, 16))
     data = make_block(name="bottleneck3.9", data=data, num_filter=num_filter, bn_momentum=bn_momentum)
-
     data = make_block(name="bottleneck3.10", data=data, num_filter=num_filter, bn_momentum=bn_momentum,
                       dilated=(32, 32))
     data0 = make_block(name="projection3", data=data0, num_filter=num_filter, bn_momentum=bn_momentum)
     data = data + data0
+    pr3 = mx.sym.Convolution(data, pad=(1, 1), kernel=(3, 3), stride=(1, 1), num_filter=1, name='pr3')
+    data = mx.sym.Concat(data, pr3)
 
     num_filter = 64
     data = make_block(name="bottleneck4.0", data=data, num_filter=num_filter,
-                              bn_momentum=bn_momentum,
-                              up_sample=True)
+                      bn_momentum=bn_momentum, up_sample=True)
     data = mx.sym.Concat(data, corr2)
     data0 = data = make_block(name="bottleneck4.1", data=data, num_filter=num_filter,  bn_momentum=bn_momentum)
     data = mx.sym.Concat(data, level1_img1, level1_img2)
     data = make_block(name="bottleneck4.2", data=data, num_filter=num_filter,  bn_momentum=bn_momentum)
     data = data + data0
-
+    pr2  = mx.sym.Convolution(data ,pad = (1,1), kernel = (3,3), stride = (1,1),num_filter =1,name='pr2')
+    data = mx.sym.Concat(data, pr2)
     ##level 4
     num_filter = 32
     data  = make_block(name="bottleneck5.0", data=data, num_filter=num_filter,
                        bn_momentum=bn_momentum, up_sample=True)
     data = mx.sym.Concat(data, corr1, init_img1, init_img1)
     data = make_block(name="bottleneck5.1", data=data, num_filter=num_filter,  bn_momentum=bn_momentum)
-    data = mx.symbol.Convolution(name='pr', data=data, num_filter=output_channel, kernel=(3, 3),
-                                 stride=(1, 1), pad=(1, 1), dilate=(1, 1), no_bias=False)
+    pr1 = mx.symbol.Convolution(name='pr1', data=data, num_filter=1, kernel=(3, 3), stride=(1, 1), pad=(1, 1), dilate=(1, 1), no_bias=False)
 
-    loss = get_loss(data,label1, 1.0, name='loss1')
+    loss1 = get_loss(pr1, label1, 1.0, name='loss1')
+    loss2 = get_loss(pr2, label2, 0.0, name='loss2')
+    loss3 = get_loss(pr3, label3, 0.0, name='loss3')
+
+    loss = mx.sym.Group([loss1,loss2,loss3])
 
     return loss
 

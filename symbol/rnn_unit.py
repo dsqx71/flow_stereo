@@ -363,9 +363,9 @@ def rnn_left2right(local_features, height, width, num_hidden, init_state, use_gr
     outputs = [mx.symbol.expand_dims(data=s, axis=2) for s in outputs]
     outputs = mx.symbol.Concat(*outputs, dim=2)
     outputs = mx.symbol.Reshape(data=outputs, shape=(0, 0, height, width))
-    # outputs = get_conv(data=outputs, num_filter=num_hidden, kernel=(1, 1),
-    #                    stride=(1, 1), pad=(0, 0), with_relu=False,
-    #                    name='left2right_projection',bn_momentum=0.9)
+    outputs = get_conv(data=outputs, num_filter=num_hidden, kernel=(1, 1),
+                       stride=(1, 1), pad=(0, 0), with_relu=False,
+                       name='left2right_projection',bn_momentum=0.9)
     return outputs
 
 

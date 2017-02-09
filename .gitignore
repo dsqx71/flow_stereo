@@ -1,4 +1,16 @@
+### Python bytecode files
 *.pyc
+
+### IntelliJ project files
 *.idea
-*.c
+
+### Cython extension
 *.so
+*.c
+
+### Ipython notebook
+*.ipynb
+
+### MXNet params
+*.params
+*.json

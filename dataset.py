@@ -1,18 +1,15 @@
 import glob
-
 import cv2
 import numpy as np
-from skimage import io
-
 from config import cfg
 from utils import util
-
 
 class DataSet:
 
     def __init__(self):
         """
             self.data_type : 'stereo' or 'flow'
+            self.dirs : list of  file dirs
         """
         self.dirs = []
         self.data_type = None
@@ -48,11 +45,12 @@ class SythesisData(DataSet):
             http://lmb.informatik.uni-freiburg.de/resources/datasets/SceneFlowDatasets.en.html
     """
 
-    def __init__(self,  data_type, data_list,prefix=cfg.dataset.SythesisData_prefix):
+    def __init__(self,  data_type, data_list, prefix=cfg.dataset.SythesisData_prefix,which_version=['cleanpass']):
 
         self.dirs = []
         self.data_type = data_type
         self.data_list = data_list
+        self.which_version = which_version
         self.get_dir(prefix)
 
     def get_dir(self, prefix):
@@ -61,7 +59,7 @@ class SythesisData(DataSet):
 
             # Driving
             if 'Driving' in self.data_list:
-                for render_level in ('cleanpass',):  # 'cleanpass'):
+                for render_level in self.which_version:
                     for focallength in ('35', '15'):
                         for orient in ('forwards', 'backwards'):
                             for speed in ('fast', 'slow'):
@@ -75,12 +73,12 @@ class SythesisData(DataSet):
                                                                                                          orient, speed)
                                 num = len(glob.glob(img_dir + 'left/*'))
                                 for i in xrange(1, num + 1):
-                                    self.dirs.append((img_dir + 'left/%04d.png' % i,
+                                    self.dirs.append([img_dir + 'left/%04d.png' % i,
                                                       img_dir + 'right/%04d.png' % i,
-                                                      label_dir + 'left/%04d.pfm' % i))
+                                                      label_dir + 'left/%04d.pfm' % i])
             # Monkaa
             if 'Monkaa' in self.data_list:
-                for render_level in ('cleanpass',):  # 'cleanpass'):
+                for render_level in self.which_version:
 
                     scenes = glob.glob(prefix + '{}/frames_{}/*'.format('Monkaa', render_level))
                     for item in scenes:
@@ -89,12 +87,12 @@ class SythesisData(DataSet):
                         img_dir = prefix + '{}/frames_{}/{}/'.format('Monkaa', render_level, scene)
                         label_dir = prefix + '{}/disparity/{}/'.format('Monkaa', scene)
                         for i in xrange(0, num):
-                            self.dirs.append((img_dir + 'left/%04d.png' % i,
+                            self.dirs.append([img_dir + 'left/%04d.png' % i,
                                               img_dir + 'right/%04d.png' % i,
-                                              label_dir + 'left/%04d.pfm' % i))
+                                              label_dir + 'left/%04d.pfm' % i])
             # flyingthing3d
             if 'flyingthing3d' in self.data_list:
-                for render_level in ('cleanpass',):  # 'cleanpass'):
+                for render_level in self.which_version:
                     for style in ('TRAIN',):
                         for c in ('A','B','C'):
                             num = glob.glob(prefix + '{}/frames_{}/{}/{}/*'.format('FlyingThings3D_release',
@@ -112,14 +110,17 @@ class SythesisData(DataSet):
                                                                                      style,
                                                                                      c,
                                                                                      j)
+                                if 'TRAIN/C/0600/' in img_dir:
+                                    # TRAIN/C/0600/14 MISS
+                                    continue
                                 for i in xrange(6, 16):
-                                    self.dirs.append((img_dir + 'left/%04d.png' % i,
+                                    self.dirs.append([img_dir + 'left/%04d.png' % i,
                                                       img_dir + 'right/%04d.png' % i,
-                                                      label_dir + 'left/%04d.pfm' % i))
+                                                      label_dir + 'left/%04d.pfm' % i])
 
         else:
             if 'Driving' in self.data_list:
-                for render_level in ('finalpass',):  # 'cleanpass'):
+                for render_level in self.which_version:
                     for focallength in ('35', '15'):
                         for orient in ('forwards', 'backwards'):
                             for speed in ('fast', 'slow'):
@@ -149,21 +150,21 @@ class SythesisData(DataSet):
 
                                         if time == 'into_future':
                                             for i in xrange(1,num):
-                                                self.dirs.append((img_dir + '%04d.png' % i,
+                                                self.dirs.append([img_dir + '%04d.png' % i,
                                                                   img_dir + '%04d.png' % (i+1),
-                                                                  label_dir + 'OpticalFlowIntoFuture_%04d_%s.pfm' % (i, sym)))
+                                                                  label_dir + 'OpticalFlowIntoFuture_%04d_%s.pfm' % (i, sym)])
                                         else:
                                             for i in xrange(1,num):
-                                                self.dirs.append((img_dir + '%04d.png' % (i+1),
+                                                self.dirs.append([img_dir + '%04d.png' % (i+1),
                                                                   img_dir + '%04d.png' % i,
-                                                                  label_dir + 'OpticalFlowIntoPast_%04d_%s.pfm' % (i+1, sym)))
+                                                                  label_dir + 'OpticalFlowIntoPast_%04d_%s.pfm' % (i+1, sym)])
 
             #  flyingthings3D
             if 'flyingthing3d' in self.data_list:
-                for render_level in ('finalpass',):  # 'cleanpass'):
+                for render_level in self.which_version:
                     for style in ('TRAIN',):
                         for c in ('A', 'B', 'C'):
-                            num = glob.glob(prefix + '{}/frames_{}/{}/{}/*'.format('FlyingThings3D',
+                            num = glob.glob(prefix + '{}/frames_{}/{}/{}/*'.format('FlyingThings3D_release',
                                                                                    render_level,
                                                                                    style,
                                                                                    c))
@@ -176,25 +177,30 @@ class SythesisData(DataSet):
                                     else:
                                         sym = 'R'
 
+
                                     for time in ('into_future', 'into_past'):
 
-                                        img_dir = '{}/frames_{}/{}/{}/{}/{}/'.format('FlyingThings3D',render_level,
+                                        img_dir = prefix +'{}/frames_{}/{}/{}/{}/{}/'.format('FlyingThings3D_release',render_level,
                                                                                      style,c,j,orient)
-                                        label_dir ='{}/optical_flow/{}/{}/{}/{}/{}/'.format('FlyingThings3D',style,
+                                        label_dir =prefix + '{}/optical_flow/{}/{}/{}/{}/{}/'.format('FlyingThings3D_release',style,
                                                                                             c,j,time,orient)
+                                        if 'TRAIN/C/0600/' in img_dir:
+                                            continue
+
                                         for i in xrange(6,15):
+
                                             if time == 'into_future':
-                                                self.dirs.append((img_dir + '%04d.png' % i,
+                                                self.dirs.append([img_dir + '%04d.png' % i,
                                                                   img_dir + '%04d.png' % (i + 1),
-                                                                  label_dir + 'OpticalFlowIntoFuture_%04d_%s.pfm' % (i, sym)))
+                                                                  label_dir + 'OpticalFlowIntoFuture_%04d_%s.pfm' % (i, sym)])
                                             else:
-                                                self.dirs.append((img_dir + '%04d.png' % (i + 1),
+                                                self.dirs.append([img_dir + '%04d.png' % (i + 1),
                                                                   img_dir + '%04d.png' % i,
                                                                   label_dir + 'OpticalFlowIntoPast_%04d_%s.pfm' % (
-                                                                  i + 1, sym)))
+                                                                  i + 1, sym)])
             #  Monkaa
             if 'Monkaa' in self.data_list:
-                for render_level in ('finalpass',):  # 'cleanpass'):
+                for render_level in self.which_version:
 
                     scenes = glob.glob(prefix + '{}/frames_{}/*'.format('Monkaa', render_level))
                     for item in scenes:
@@ -216,20 +222,20 @@ class SythesisData(DataSet):
 
                                 for i in xrange(num-1):
                                     if time == 'into_future':
-                                        self.dirs.append((img_dir + '%04d.png' % i,
+                                        self.dirs.append([img_dir + '%04d.png' % i,
                                                           img_dir + '%04d.png' % (i + 1),
-                                                          label_dir + 'OpticalFlowIntoFuture_%04d_%s.pfm' % (i, sym)))
+                                                          label_dir + 'OpticalFlowIntoFuture_%04d_%s.pfm' % (i, sym)])
                                     else:
-                                        self.dirs.append((img_dir + '%04d.png' % (i + 1),
+                                        self.dirs.append([img_dir + '%04d.png' % (i + 1),
                                                           img_dir + '%04d.png' % i,
                                                           label_dir + 'OpticalFlowIntoPast_%04d_%s.pfm' % (
-                                                              i + 1, sym)))
+                                                              i + 1, sym)])
     @staticmethod
     def shapes():
         return 540, 960
 
     def name(self):
-        return 'synthesisData' #+ '_'.join(self.data_list)
+        return 'synthesisData'
 
     @staticmethod
     def get_data(img_dir,data_type):
@@ -240,7 +246,7 @@ class SythesisData(DataSet):
         if data_type == 'stereo':
 
             label, scale = util.readPFM(img_dir[2])
-            label = label *scale
+            label = label * scale
 
         elif data_type == 'flow':
 
@@ -252,20 +258,24 @@ class SythesisData(DataSet):
 
 class KittiDataset(DataSet):
 
-    def __init__(self,data_type,which='2012',first_frame=True,is_train=True,prefix=cfg.dataset.kitti_prefix):
+    def __init__(self,data_type, which='2012', first_frame=True, is_train=True, prefix=cfg.dataset.kitti_prefix):
 
         if which == '2012' and first_frame == False:
             raise ValueError('kitti 2012 have not second frame ground truth')
+
         self.dirs = []
         self.data_type = data_type
+
         if which == '2012' and is_train:
             high = 194
         if which == '2012' and is_train==False:
             high = 195
         if which == '2015':
             high = 200
+
         if is_train == False:
             prefix = prefix + 'testing/'
+
         if self.data_type == 'stereo':
             if which == '2015':
                 gt_dir = 'disp_occ_0/' if first_frame else 'disp_occ_1/'
@@ -280,7 +290,7 @@ class KittiDataset(DataSet):
                 gt = prefix +  gt_dir + '%06d_10.png' % num
                 imgl = prefix + imgl_dir + dir_name
                 imgr = prefix + imgr_dir + dir_name
-                self.dirs.append((gt, imgl, imgr))
+                self.dirs.append([gt, imgl, imgr])
         else:
             if which == '2015':
                 gt_dir = 'flow_occ_0/'
@@ -296,10 +306,11 @@ class KittiDataset(DataSet):
                 gt = prefix + gt_dir + dir_name + '_10.png'.format(num)
                 img1 = prefix + img1_dir + dir_name + '_10.png'.format(num)
                 img2 = prefix + img2_dir + dir_name + '_11.png'.format(num)
-                self.dirs.append((gt, img1, img2))
+                self.dirs.append([gt, img1, img2])
                 
     @staticmethod
     def shapes():
+        # kitti data have different shapes, partly because of they were rectified with different calibration matrixes.
         return 375, 1242
 
     @staticmethod
@@ -315,25 +326,21 @@ class KittiDataset(DataSet):
         """
         img1 = cv2.imread(img_dir[1])
         img2 = cv2.imread(img_dir[2])
-
         try:
             if data_type == 'stereo':
-                if 'npy' in img_dir[0]:
-                    label = np.load(img_dir[0])
-                else:
-                    label = np.round(io.imread(img_dir[0])/256.0).astype(int)
+                label = cv2.imread(img_dir[0],cv2.IMREAD_UNCHANGED)/256.0
                 label = label.astype(np.float64)
-                label[label <= 1] = np.nan
+                label[label <= 3] = np.nan
                 return img1, img2, label, None
             else :
                 label = cv2.imread(img_dir[0],cv2.IMREAD_UNCHANGED)
                 valid = label[:, :, 0]
                 label = label[:, :, 1:]
-                label = label.astype(np.float64)
                 label = (label - 2 ** 15) / 64.0
                 tmp = np.zeros_like(label)
                 tmp[:, :, 0] = label[:, :, 1]
                 tmp[:, :, 1] = label[:, :, 0]
+                tmp[valid,:] = np.nan
                 label = tmp
                 return img1, img2, label, valid
             # train set or validation set have labels
@@ -354,7 +361,7 @@ class FlyingChairsDataset(DataSet):
             low,high : index of a sample
         """
         self.dirs = []
-        for i in xrange(1, 22873):
+        for i in range(1, 22873):
             self.dirs.append([prefix + '%05d_img1.ppm' % i, prefix + '%05d_img2.ppm' % i, prefix + '%05d_flow.flo' % i])
         self.data_type = 'flow'
 
@@ -364,7 +371,7 @@ class FlyingChairsDataset(DataSet):
 
     @staticmethod
     def name():
-        return 'Flyingthing3D'
+        return 'FlyingChairs'
 
     @staticmethod
     def get_data(img_dir, data_type):
@@ -411,9 +418,9 @@ class TusimpleDataset(DataSet):
         self.data_type = 'stereo'
         self.dirs = []
         for i in range(0,num_data):
-            self.dirs.append((prefix+'/disparity/%d.npy' % i,
+            self.dirs.append([prefix+'/disparity/%d.npy' % i,
                               prefix+'/left/%d.png' %i,
-                              prefix+'/right/%d.png' %i))
+                              prefix+'/right/%d.png' %i])
 
     @staticmethod
     def shapes():
@@ -443,3 +450,45 @@ class TusimpleDataset(DataSet):
         return img1, img2, label, None
 
 
+class multidataset(DataSet):
+
+    def __init__(self,data_type):
+
+        self.data_type=data_type
+        self.dirs = []
+
+    def add_dataset(self, dataset):
+
+        for item in dataset.dirs:
+            self.dirs.append([item,dataset.name()])
+
+    @staticmethod
+    def shapes():
+        return "unknown"
+
+    @staticmethod
+    def name():
+        return 'multidataset'
+
+    @staticmethod
+    def get_data(img_dir, data_type):
+
+        dataset_type = img_dir[1]
+
+        if dataset_type=='kitti':
+            get_data_method = KittiDataset.get_data
+
+        elif dataset_type=='synthesisData':
+            get_data_method = SythesisData.get_data
+
+        elif dataset_type=='FlyingChairs':
+            get_data_method = FlyingChairsDataset.get_data
+
+        elif dataset_type=='TusimpleDataset':
+            get_data_method = TusimpleDataset.get_data
+        else:
+            raise ValueError("the get data method don't exist")
+
+        img1, img2, label, aux = get_data_method(img_dir[0],data_type)
+
+        return img1, img2, label, aux

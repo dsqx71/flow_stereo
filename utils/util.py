@@ -5,18 +5,27 @@ import cv2
 import sys
 import re
 import mxnet.ndarray as nd
-from config import cfg
-import math
+# from config import cfg
 # from guided_filter.core import filters
-from mxnet.ndarray import NDArray, zeros, clip, sqrt
 import os
+import math
+import mxnet as mx
+from mxnet.ndarray import NDArray, zeros, clip, sqrt, square
+# import  mxnet.optimizer.Optimizer
 import pandas as pd
 import subprocess
+import matplotlib.pyplot as plt
 
-def flow2color(flow):
+# def disp2color(disp):
+
+def flow2color(flow, is_cv2imshow=False):
     """
-        plot optical flow
-        optical flow have 2 channel : u ,v indicate displacement
+    plot optical flow
+    Parameters
+    ----------
+    flow : ndarray
+      optical flow have 2 channel : u ,v indicate displacement
+
     """
     hsv = np.zeros(flow.shape[:2]+(3,)).astype(np.uint8)
     hsv[..., 1] = 255
@@ -25,14 +34,30 @@ def flow2color(flow):
     hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
     rgb = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
-    plt.figure()
-    plt.imshow(rgb)
-    plt.title('optical flow')
+    if is_cv2imshow:
+
+        cv2.imshow('flow', rgb)
+        cv2.waitKey(1)
+    else:
+        plt.figure()
+        plt.imshow(rgb)
+        plt.title('optical flow')
+
 
 def estimate_label_size(net, batch_shape):
     """
-        estimate label shape given by input shape
+    estimate label shape given by input shape
+    Parameters
+    ----------
+    net : symbol
+    batch_shape :  tuple
+        batch shape of input
+    Returns
+    -------
+    shapes :  list
+        list of label shapes
     """
+
     args = dict(zip(net.list_outputs(), net.infer_shape(img1=batch_shape, img2=batch_shape)[1]))
     shapes = []
     for key in args:
@@ -40,7 +65,7 @@ def estimate_label_size(net, batch_shape):
     return shapes
 
 
-def load_checkpoint(prefix, epoch, net, batchsize):
+def load_checkpoint(prefix, epoch):
 
     save_dict = nd.load('%s-%04d.params' % (prefix, epoch))
     # names_arg = net.list_arguments()
@@ -72,30 +97,19 @@ def load_checkpoint(prefix, epoch, net, batchsize):
 
     return arg_params,aux_params
 
-def load_model(name, epoch, net, batch_shape, ctx, grad_req):
-
-    data_sym = ['img1', 'img2']
-    args,aux = load_checkpoint(name, epoch)
-    executor = net.simple_bind(ctx=ctx, grad_req=grad_req, img1=batch_shape, img2=batch_shape,
-                               label = (1,1,375,1242))
-
-    for key in executor.arg_dict:
-        if key in data_sym or 'stereo' in key or 'flow' in key:
-            executor.arg_dict[key][:] = mx.nd.zeros((executor.arg_dict[key].shape), ctx)
-        else:
-            if key in args:
-                executor.arg_dict[key][:] = args[key]
-
-    for key in executor.aux_dict:
-        executor.aux_dict[key][:] = aux[key]
-
-    return executor
-
 def readPFM(file):
     """
-        read .PFM file
-    """
+    read .PFM file
+    Parameters
+    ----------
+    file : str
+        file dir
 
+    Returns
+    -------
+    data : ndarray
+    scale : float
+    """
     file = open(file, 'rb')
 
     color = None
@@ -135,9 +149,14 @@ def readPFM(file):
 
 
 def writePFM(file, image, scale=1):
-
     """
-        write .PFM file
+    write .PFM file
+    Parameters
+    ----------
+    file : str
+        output dir
+    image : ndarray
+    scale : float
     """
     file = open(file, 'wb')
     color = None
@@ -159,10 +178,17 @@ def writePFM(file, image, scale=1):
     image.tofile(file)
 
 def outlier_sum(pred,gt,tau=3):
-    '''
-       residual > 3  and   residual / gt > 0.05   (defined by kitti)
-    '''
-
+    """
+    residual > 3  and   residual / gt > 0.05   (defined by kitti)
+    Parameters
+    ----------
+    pred : ndarray
+        predict
+    gt : ndarray
+        ground truth
+    tau : int
+        threshold deciding whethe a point is outlier
+    """
     outlier = np.zeros(gt.shape)
     mask = gt > 0
 
@@ -173,35 +199,60 @@ def outlier_sum(pred,gt,tau=3):
 
     return (err[err>tau]/(gt[err>tau].astype(np.float32)+1) > 0.05).sum()/float(mask.sum()),outlier
 
-def plot_velocity_vector(flow):
-    '''
-        use arrow line to draw optical flow
-    '''
+def plot_velocity_vector(flow,interval=30,is_cv2imshow=False):
+    """
+    use arrow line to draw optical flow
+    Parameters
+    ----------
+    flow :  ndarray
+        optical flow
+    """
+
     img = np.ones(flow.shape[:2]+(3,))
-    for i in range(0,img.shape[0]-20,30):
-        for j in range(0,img.shape[1]-20,30):
+    for i in range(0,img.shape[0]-20,interval):
+        for j in range(0,img.shape[1]-20,interval):
             try:
                 # opencv 3.1.0
                 if flow.shape[-1] == 2:
                     cv2.arrowedLine(img,(j,i),(j+int(round(flow[i,j,0])),i+int(round(flow[i,j,1]))),(150,0,0),2)
                 else:
                     cv2.arrowedLine(img, (j, i), (j + int(round(flow[i, j, 0])), i ), (150, 0, 0), 2)
-
             except AttributeError:
                 # opencv 2.4.8
                 if flow.shape[-1] == 2:
                     cv2.line(img, (j, i), (j + int(round(flow[i, j, 0])), i + int(round(flow[i, j, 1]))), (150, 0, 0), 2)
                 else:
                     cv2.line(img,pt1 =  (j, i),pt2= (j + int(round(flow[i, j])), i), color = (150, 0, 0),thickness =  1)
-    plt.figure()
-    plt.imshow(img)
-    plt.title('velocity vector')
+    if is_cv2imshow:
+
+        cv2.imshow('vector', img)
+        cv2.waitKey(1)
+    else:
+        plt.figure()
+        plt.imshow(img)
+        plt.title('velocity vector')
 
 
 def weight_median_filter(i, left, radius, epsilon, mask):
-    '''
-        Constant Time Weighted Median Filtering for Stereo Matching and Beyond
-    '''
+    """
+    Constant Time Weighted Median Filtering for Stereo Matching and Beyond
+    Parameters
+    ----------
+    i : ndarray
+        disparity
+    left : ndarray
+        original image
+    radius : int
+    epsilon : float
+    mask: ndarray of boolean
+        indicate which need to be changed
+
+    Returns
+    -------
+    dispout : ndarray
+        filted disparity
+    """
+
     dispin  = i.copy()
     dispout = dispin.copy()
     dispout[mask] = 0
@@ -231,9 +282,21 @@ def weight_median_filter(i, left, radius, epsilon, mask):
     return dispout
 
 def get_imageRecord(dataset,batchsize,prefetch_buffer):
-    '''
-        generate image record
-    '''
+    """
+    generate image record
+    Parameters
+    ----------
+    dataset : dataset
+        please refer to dataset.py
+    batchsize : tuple
+        the tuple has four elements
+    prefetch_buffer : int
+        total number of prefetch buffers
+
+    Returns
+    -------
+    records : image record
+    """
     data_type = dataset.data_type
 
     if data_type == 'flow':
@@ -260,77 +323,63 @@ def get_imageRecord(dataset,batchsize,prefetch_buffer):
                       shuffle = False))
     return records
 
-def check_data(img1,img2,gt):
+def check_data(img1, img2, gt, interval=10, number=20):
     """
-        check the validity of disparity
+    check the validity of disparity ground truth
+    Parameters
+    ----------
+    img1 : ndarray
+        left image
+    img2 : ndarray
+        right image
+    gt : ndarray
+        disparity ground truth
+    interval : int
+        interval between adjacent plots
+    number : int
+        total number of plots
     """
-
     tot = 0
-    for i in range(100,img1.shape[0]-50,10):
-        for j in range(100,img1.shape[1]-50,10):
-            if gt[i,j] >0 and j-gt[i,j]>=25:
-                if tot>20:
-                    break
-                print gt[i,j]
+    for i in range(20, img1.shape[0]-20, interval):
+        for j in range(20, img1.shape[1]-20, interval):
+            if tot>number:
+                break
+
+            if len(gt.shape) == 2 :
+                # stereo
+                if gt[i,j]!=gt[i,j]:
+                    continue
+                print 'disparity : {}' .format(gt[i,j])
                 plt.figure()
-                plt.imshow(img1[i-15:i+16,j-15:j+16])
-                plt.waitforbuttonpress()
+                plt.imshow(img1[i - 15:i + 16, j - 15:j + 16])
+                # plt.waitforbuttonpress()
                 plt.figure()
-                plt.imshow(img2[i-15:i+16,j-gt[i,j]-15:j+16-gt[i,j]])
-                plt.waitforbuttonpress()
+                plt.imshow(img2[i - 15:i + 16, j - int(round(gt[i, j])) - 15:j + 16 - int(round(gt[i, j]))])
+                # plt.waitforbuttonpress()
+                tot += 1
+            else:
+                # flow
+                print 'flow x : {} y : {}'.format(gt[i,j,0], gt[i,j,1])
+                plt.figure()
+                plt.imshow(img1[i - 15:i + 16, j - 15:j + 16])
+                # plt.waitforbuttonpress()
+                plt.figure()
+                plt.imshow(img2[i - 15 + gt[i, j, 1]:i + 16 + gt[i, j, 1], j + gt[i, j, 0] - 15:j + 16 + gt[i, j, 0]])
+                # plt.waitforbuttonpress()
                 tot += 1
 
-class Adam(mx.optimizer.Optimizer):
 
-    def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8,
-                 decay_factor=(1 - 1e-8), num_ctx=1, **kwargs):
-        super(Adam, self).__init__(learning_rate=learning_rate, **kwargs)
-        self.beta1 = beta1
-        self.beta2 = beta2
-        self.epsilon = epsilon
-        self.decay_factor = decay_factor
-        self.num_ctx = num_ctx
-
-    def create_state(self, index, weight):
-
-        return (zeros(weight.shape, weight.context, dtype=weight.dtype),  # mean
-                zeros(weight.shape, weight.context, dtype=weight.dtype))  # variance
-
-    def update(self, index, weight, grad, state):
-
-        assert(isinstance(weight, NDArray))
-        assert(isinstance(grad, NDArray))
-        lr = self._get_lr(index)
-        self._update_count(index)
-
-        t = self._index_update_count[index]
-        mean, variance = state
-
-        grad *= self.rescale_grad
-        if self.clip_gradient is not None:
-            clip(grad, -self.clip_gradient, self.clip_gradient, out=grad)
-
-        mean[:] = self.beta1 * mean + (1. - self.beta1) * grad
-        variance[:] = self.beta2 * variance + (1. - self.beta2) * grad * grad
-
-        coef1 = 1. - self.beta1**t
-        coef2 = 1. - self.beta2**t
-        lr *= math.sqrt(coef2)/coef1
-
-        weight[:] -= lr*mean/(sqrt(variance) + self.epsilon)
-
-        wd = self._get_wd(index)
-        if wd > 0.:
-            weight[:] -= (lr * wd) * weight
-        # if 'left2right' in self.idx2name[index]:
-        #     print self.idx2name[index]
-        #     print weight.asnumpy().mean()
-        #     print grad.asnumpy().mean()
-        grad[:] = zeros(grad.shape, grad.context, dtype=grad.dtype)
 
 def get_idx2name(net):
     """
-        get symbol name from index
+    get symbol name from index
+    Parameters
+    ----------
+    net: symbol
+    Returns
+    -------
+    idx2name : dict
+        map index to name of symbol
     """
     idx2name = {}
     arg_name = net.list_arguments()
@@ -341,7 +390,15 @@ def get_idx2name(net):
 
 def get_gradreq(net):
     """
-        get gradiant requirement
+    set gradiant requirement
+    Parameters
+    ----------
+    net : symbol
+
+    Returns
+    -------
+    grad_req : dict
+        dict of gradient requirements
     """
     grad_req = {}
     for key in net.list_arguments():
@@ -351,3 +408,110 @@ def get_gradreq(net):
             grad_req[key] = 'write'
     return grad_req
 
+class Adam(mx.optimizer.Optimizer):
+    """Adam optimizer as described in [King2014]_.
+
+    .. [King2014] Diederik Kingma, Jimmy Ba,
+       *Adam: A Method for Stochastic Optimization*,
+       http://arxiv.org/abs/1412.6980
+
+    the code in this class was adapted from
+    https://github.com/mila-udem/blocks/blob/master/blocks/algorithms/__init__.py#L765
+
+    Parameters
+    ----------
+    learning_rate : float, optional
+        Step size.
+        Default value is set to 0.002.
+    beta1 : float, optional
+        Exponential decay rate for the first moment estimates.
+        Default value is set to 0.9.
+    beta2 : float, optional
+        Exponential decay rate for the second moment estimates.
+        Default value is set to 0.999.
+    epsilon : float, optional
+        Default value is set to 1e-8.
+    decay_factor : float, optional
+        Default value is set to 1 - 1e-8.
+
+    wd : float, optional
+        L2 regularization coefficient add to all the weights
+    rescale_grad : float, optional
+        rescaling factor of gradient.
+
+    clip_gradient : float, optional
+        clip gradient in range [-clip_gradient, clip_gradient]
+    """
+
+    def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8,
+                 decay_factor=(1 - 1e-8), **kwargs):
+        super(Adam, self).__init__(learning_rate=learning_rate, **kwargs)
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.epsilon = epsilon
+        self.count = 0
+        self.decay_factor = decay_factor
+
+    def create_state(self, index, weight):
+        """Create additional optimizer state: mean, variance
+
+        Parameters
+        ----------
+        weight : NDArray
+            The weight data
+
+        """
+        return (zeros(weight.shape, weight.context, dtype=weight.dtype),  # mean
+                zeros(weight.shape, weight.context, dtype=weight.dtype))  # variance
+
+    def update(self, index, weight, grad, state):
+        """Update the parameters.
+
+        Parameters
+        ----------
+        index : int
+            An unique integer key used to index the parameters
+
+        weight : NDArray
+            weight ndarray
+
+        grad : NDArray
+            grad ndarray
+
+        state : NDArray or other objects returned by init_state
+            The auxiliary state used in optimization.
+        """
+        assert (isinstance(weight, NDArray))
+        assert (isinstance(grad, NDArray))
+        lr = self._get_lr(index)
+        self._update_count(index)
+
+        t = self._index_update_count[index]
+        mean, variance = state
+
+        grad *= self.rescale_grad
+        if self.clip_gradient is not None:
+            clip(grad, -self.clip_gradient, self.clip_gradient, out=grad)
+
+        mean *= self.beta1
+        mean += grad * (1. - self.beta1)
+
+        variance *= self.beta2
+        variance += (1 - self.beta2) * square(grad, out=grad)
+
+        coef1 = 1. - self.beta1 ** t
+        coef2 = 1. - self.beta2 ** t
+        lr *= math.sqrt(coef2) / coef1
+
+        weight -= lr * mean / (sqrt(variance) + self.epsilon)
+
+        wd = self._get_wd(index)
+        if wd > 0.:
+            weight[:] -= (lr * wd) * weight
+        self.count+=1
+        # if self.count>50:
+        # if  np.isnan(weight.asnumpy()).any() == True:
+        #     print self.idx2name[index]
+        # print self.idx2name[index]
+        # print grad.asnumpy().mean()
+        # print weight.asnumpy().mean()

@@ -1,5 +1,6 @@
 #!python
-# cython: boundscheck=False , wraparound=False,overflowcheck=False,optimize.use_switch=True,optimize.unpack_method_calls=True,
+# cython: boundscheck=False , wraparound=False, overflowcheck=False,
+# optimize.use_switch=True,optimize.unpack_method_calls=True,
 import cython
 import numpy as np
 cimport numpy as np
@@ -14,11 +15,24 @@ cdef inline double double_max(double a,double b):
 
 cpdef resize(np.ndarray[np.float64_t, ndim=2] src, int x_shape, int y_shape, float threshold=0.5):
     """
-        the interpolate method will consider NaN_point ratio.
+    This function is different from opencv's counterpart! it will consider NaN_point ratio.
+    Parameters
+    ----------
+    src : ndarray with np.float64
+        scr only has two axis
+    x_shape : int
+        target width
+    y_shape : int
+        target height
+    threshold : float
+        indicate whether the point should be filled.
+    Returns
+    -------
+    dst : ndarray
+        resized image
     """
 
     cdef double y_ori = src.shape[0],x_ori = src.shape[1]
-
     cdef Py_ssize_t i,j,desty,destx,yoff,xoff
     cdef double factory = (y_ori-1) / float(y_shape-1) ,factorx = (x_ori-1) / float(x_shape-1)
     cdef double accum_value,accum_weight,accum_nan,sample,weight,botx,boty

@@ -3,30 +3,51 @@ import logging
 import multiprocessing as mp
 from collections import namedtuple
 from random import randint, uniform
-
 import Queue
-import caffe
 import cv2
 import mxnet as mx
 import numpy as np
+import os
+import matplotlib.pyplot as plt
 from sklearn import utils
-
 from config import cfg
-import util_cython
+from utils import util_cython
+
+
 
 DataBatch = namedtuple('DataBatch', ['data', 'label', 'pad', 'index'])
 class Dataiter_training(mx.io.DataIter):
 
     def __init__(self, dataset, batch_shape, label_shape, augment_ratio, n_thread=40, be_shuffle=True,
-                 downsample_method = 'interpolate',use_rnn=False):
-
+                     is_bilinear = True, use_rnn=False, num_hidden=0):
+        """
+        stereo and optical flow Iterator, which will feed data and label to network
+        Parameters
+        ----------
+        dataset : dataset
+        batch_shape :  tuple
+            input shape
+        label_shape : list pf tuple
+            indicate label shape
+        augment_ratio : float
+            augmentation ratio
+        n_thread : int
+            number of thread
+        be_shuffle : boolean
+            whether to shuffle data
+        is_bilinear : boolean
+            There are two way to downsample ground truth. one is bilinear interpolation,
+            another way is downsample ground truth by constant interval .
+        use_rnn : boolean
+            indicate whether network contains RNN, because RNN has embedding
+        """
         super(Dataiter_training, self).__init__()
 
         self.batch_size = batch_shape[0]
         self.batch_shape = batch_shape
         self.shapes = batch_shape[1:]
         self.be_shuffle = be_shuffle
-        self.downsample_method = downsample_method
+        self.is_bilinear = is_bilinear
 
         self.label_shape = label_shape
         self.data_dirs = utils.shuffle(dataset.dirs) if self.be_shuffle else dataset.dirs
@@ -37,21 +58,40 @@ class Dataiter_training(mx.io.DataIter):
         self.use_rnn = use_rnn
         self.augment_ratio = augment_ratio
 
+
+        self.dim_out = 1 if self.data_type == 'stereo' else 2
+        self.pad = self.num_imgs % self.batch_size
+        self.dataset_name = dataset.name()
+
         # setting of multi-process
         self.stop_word = '==STOP--'
         self.n_thread = n_thread
-
         self.worker_proc = None
         self.stop_flag = mp.Value('b', False)
-        self.result_queue = mp.Queue(maxsize=self.batch_size*20)
+        self.result_queue = mp.Queue(maxsize=self.batch_size*10)
         self.data_queue = mp.Queue()
-        self.dim_out = 1 if self.data_type == 'stereo' else 2
+
+        # load mean
+        try:
+            self.mean = np.load(cfg.dataset.mean_dir.format(self.dataset_name))
+            self.count = self.mean[3]
+            self.mean = self.mean[:3]
+        except:
+            self.mean = np.array([ 0.35315346,  0.3880523,  0.40808736])
+            self.count = 100
+        # RNN init state
+        if self.use_rnn:
+            self.num_hidden = num_hidden
+            self.init_h = mx.nd.zeros((self.batch_size, self.num_hidden))
+            self.init_c = mx.nd.zeros((self.batch_size, self.num_hidden))
 
     @property
     def provide_data(self):
 
         if self.use_rnn:
-            return [('img1', self.batch_shape), ('img2', self.batch_shape), ('init_h',(self.batch_size,cfg.RNN.num_hidden))]
+            return [('img1', self.batch_shape), ('img2', self.batch_shape),
+                    ('init_h',(self.batch_size, self.num_hidden)),
+                    ('init_c',(self.batch_size, self.num_hidden))]
         else:
             return [('img1', self.batch_shape), ('img2', self.batch_shape)]
 
@@ -60,7 +100,8 @@ class Dataiter_training(mx.io.DataIter):
     def provide_label(self):
 
         return [('{}_downsample{}'.format(self.data_type, i+1),
-                (self.batch_size, self.dim_out, self.label_shape[i][0], self.label_shape[i][1])) for i in range(len(self.label_shape))]
+                (self.batch_size, self.dim_out, self.label_shape[i][0],
+                 self.label_shape[i][1])) for i in range(len(self.label_shape))]
 
     def _thread_start(self):
 
@@ -78,9 +119,11 @@ class Dataiter_training(mx.io.DataIter):
                                              self.data_type,
                                              crop_or_pad,
                                              self.shapes,
-                                             self.downsample_method,
+                                             self.is_bilinear,
                                              self.label_shape])
                             for pid in range(self.n_thread)]
+        for item in self.worker_proc:
+            item.daemon = True
         [item.start() for item in self.worker_proc]
 
         def cleanup():
@@ -88,13 +131,18 @@ class Dataiter_training(mx.io.DataIter):
         atexit.register(cleanup)
 
     def _insert_queue(self):
+
         for item in self.data_dirs:
             self.data_queue.put(item)
         [self.data_queue.put(self.stop_word) for pid in range(self.n_thread)]
 
     def iter_next(self):
 
-        if self.current >= self.num_imgs :
+        if self.current >= self.num_imgs - self.pad:
+            if self.count>50000:
+                self.count = 50000
+            tmp = np.append(self.mean,self.count)
+            np.save(cfg.dataset.mean_dir.format(self.dataset_name),tmp)
             return False
 
         self.first_img = []
@@ -105,8 +153,14 @@ class Dataiter_training(mx.io.DataIter):
         for i in range(self.current, self.current+self.batch_size):
 
             img1, img2, label, aux = self.result_queue.get()
-            img1 = img1 - img1.reshape(-1, 3).mean(axis=0)
-            img2 = img2 - img2.reshape(-1, 3).mean(axis=0)
+
+            self.mean = self.mean * self.count + img1.reshape(-1, 3).mean(axis=0) + img2.reshape(-1, 3).mean(axis=0)
+            self.count += 2
+            self.mean = self.mean / self.count
+
+            img1 = img1 - self.mean
+            img2 = img2 - self.mean
+
             for j in range(len(self.label)):
                 self.label[j].append(label[j])
 
@@ -119,7 +173,7 @@ class Dataiter_training(mx.io.DataIter):
 
     @staticmethod
     def _worker(worker_id, data_queue, result_queue, stop_word, stop_flag, get_data_function, get_augment,
-                augment_ratio, data_type, crop_or_pad, shapes, downsample_method, label_shape):
+                augment_ratio, data_type, crop_or_pad, shapes, is_bilinear, label_shape):
 
         for item in iter(data_queue.get, stop_word):
 
@@ -128,36 +182,44 @@ class Dataiter_training(mx.io.DataIter):
 
             img1, img2, label, index = get_data_function(item, data_type)
             label = label.astype(np.float64)
-
             img1 = img1 * 0.00392156862745098
             img2 = img2 * 0.00392156862745098
-
             if uniform(0, 1) < augment_ratio:
                 img1, img2, label = get_augment(img1, img2, label, data_type)
             img1, img2, label = crop_or_pad(img1, img2, label, shapes, True, data_type)
 
             labels = []
             for j in range(len(label_shape)):
-                if downsample_method == 'interpolate':
+                if is_bilinear:
                     # the interploate method will consider NaN_point ratio
                     if data_type == 'stereo':
                         labels.append(util_cython.resize(label, label_shape[j][1], label_shape[j][0], 0.5))
                     else:
+                        # downsample two channels of optical flow individually
                         tmp = np.zeros(label_shape[j] + (2,))
                         for i in range(2):
-                            tmp[:,:,i] = util_cython.resize(label[:, :, i], label_shape[j][1], label_shape[j][0], 0.3)
+                            tmp[:,:,i] = util_cython.resize(label[:, :, i], label_shape[j][1], label_shape[j][0], 0.5)
                         tmp = tmp.transpose(2,0,1)
                         labels.append(tmp)
-
                 else:
-                    # Tusimple lidar data is too sparse to interpolate
+                    # Tusimple lidar data is too sparse to be interpolated!
                     factor = int(label.shape[0]/label_shape[j][0])
-                    labels.append(label[::factor,::factor])
+                    tmp = label[::factor,::factor]
+                    if data_type == 'flow':
+                        tmp = tmp.transpose(2,0,1)
+                    labels.append(tmp)
             result_queue.put((img1, img2, labels, index))
 
     def getdata(self):
-        return [mx.nd.array(np.asarray(self.first_img).transpose(0, 3, 1, 2)),
-                mx.nd.array(np.asarray(self.second_img).transpose(0, 3, 1, 2))]
+
+        if self.use_rnn:
+            # rnn has init state and init_h are all zeros
+            return [mx.nd.array(np.asarray(self.first_img).transpose(0, 3, 1, 2)),
+                    mx.nd.array(np.asarray(self.second_img).transpose(0, 3, 1, 2)),
+                    self.init_h, self.init_c]
+        else:
+            return [mx.nd.array(np.asarray(self.first_img).transpose(0, 3, 1, 2)),
+                    mx.nd.array(np.asarray(self.second_img).transpose(0, 3, 1, 2))]
 
     @property
     def getaux(self):
@@ -166,9 +228,11 @@ class Dataiter_training(mx.io.DataIter):
     def getlabel(self):
 
         if self.data_type =='stereo':
+            # disparity only has one channel
             return [mx.nd.array(np.expand_dims(np.asarray(self.label[i]), 1)) for i in range(len(self.label_shape))]
 
         elif self.data_type == 'flow':
+            # optical flow has two channels
             return [mx.nd.array(np.asarray(self.label[i])) for i in range(len(self.label_shape))]
 
     def getindex(self):
@@ -207,8 +271,22 @@ class Dataiter_training(mx.io.DataIter):
 
 class multi_imageRecord(mx.io.DataIter):
 
-    def __init__(self, records, data_type, batch_shape, label_shapes, augment_ratio,use_rnn):
-
+    def __init__(self, records, data_type, batch_shape, label_shapes, augment_ratio, use_rnn):
+        """
+        this iterator contains three recorditer.
+        The iterator only support stereo , since range of most optical flow's label is greater than 256*3
+        Parameters
+        ----------
+        records : list of records
+        data_type : str
+            'stereo' or 'flow'
+        batch_shape : tuple
+            shape of input
+        label_shapes : list of tuples
+        augment_ratio : float
+        use_rnn : boolean
+            whether the network contains rnn
+        """
         super(multi_imageRecord, self).__init__()
         self.data_type = data_type
         self.records = records
@@ -256,8 +334,7 @@ class multi_imageRecord(mx.io.DataIter):
 
             self.img1.append(img1)
             self.img2.append(img2)
-            # if self.data_type == 'stereo':
-            #     label[label <= 0] = np.nan
+
             label = label.astype(np.float64)
             for i in xrange(len(self.labels)):
                 self.labels[i].append(util_cython.resize(label, self.label_shapes[i][1], self.label_shapes[i][0]))
@@ -265,12 +342,13 @@ class multi_imageRecord(mx.io.DataIter):
         return True
 
     def getdata(self):
+
         return [mx.nd.array(np.asarray(self.img1).transpose(0, 3, 1, 2)),
                 mx.nd.array(np.asarray(self.img2).transpose(0, 3, 1, 2))]
 
     def getlabel(self):
-        #  output dimension of optical flow is 3,and stereo is 2
 
+        #  output dimension of optical flow is 3,and stereo is 2
         if len(self.labels[0][0].shape) == 3:
             return [mx.nd.array(np.asarray(self.labels[i]).transpose(0, 3, 1, 2)) for i in xrange(len(self.labels))]
         else:
@@ -281,19 +359,22 @@ class multi_imageRecord(mx.io.DataIter):
         return self.records[0].getindex()
 
     def reset(self):
+
         for i in self.records:
             i.reset()
 
 class caffe_iterator(mx.io.DataIter):
 
     def __init__(self, ctx, dataset, batch_shape, label_shape, input_shape,
+                 data_type = 'stereo',
                  template = cfg.dataset.prototxt_template,
                  caffe_prototxt = cfg.dataset.prototxt_dir,
                  caffe_pretrain = cfg.dataset.pretrain_caffe,
                  n_thread=15, be_shuffle=True, augment=True,use_rnn=False):
 
-
+        import caffe
         super(caffe_iterator, self).__init__()
+        self.data_type = data_type
         self.be_shuffle = be_shuffle
         self.label_shape = label_shape
         self.input_shape = input_shape
@@ -338,7 +419,7 @@ class caffe_iterator(mx.io.DataIter):
         self.n_thread = n_thread
         self.worker_proc = None
         self.stop_flag = mp.Value('b', False)
-        self.result_queue = mp.Queue(maxsize=self.batch_shape[0] * 20)
+        self.result_queue = mp.Queue(maxsize=self.batch_shape[0] * 10)
         self.data_queue = mp.Queue()
 
 
@@ -352,7 +433,8 @@ class caffe_iterator(mx.io.DataIter):
                                              self.stop_word,
                                              self.stop_flag,
                                              self.get_data_function,
-                                             self.input_shape])
+                                             self.input_shape,
+                                             self.data_type])
                             for pid in range(self.n_thread)]
         [item.start() for item in self.worker_proc]
 
@@ -367,13 +449,14 @@ class caffe_iterator(mx.io.DataIter):
         [self.data_queue.put(self.stop_word) for pid in range(self.n_thread)]
 
     @staticmethod
-    def _worker(worker_id, data_queue, result_queue, stop_word, stop_flag, get_data_function, input_shape):
+    def _worker(worker_id, data_queue, result_queue, stop_word, stop_flag,
+                get_data_function, input_shape, data_type):
 
         for item in iter(data_queue.get, stop_word):
             if stop_flag == 1:
                 break
-            img1, img2, label, index = get_data_function(item, 'stereo')
-            img1, img2, label = crop_or_pad(img1, img2, label, (3,) + input_shape, True, 'stereo')
+            img1, img2, label, index = get_data_function(item, data_type)
+            img1, img2, label = crop_or_pad(img1, img2, label, (3,) + input_shape, True, data_type)
             result_queue.put((img1, img2, label, index))
 
     @property
@@ -385,7 +468,7 @@ class caffe_iterator(mx.io.DataIter):
 
     @property
     def provide_label(self):
-        return [('stereo_downsample%d' % (i+1),(self.batch_shape[0],1) + self.label_shape[i])
+        return [(self.data_type+'_downsample%d' % (i+1),(self.batch_shape[0],1) + self.label_shape[i])
                 for i in range(len(self.label_shape))]
 
     def iter_next(self):
@@ -408,7 +491,8 @@ class caffe_iterator(mx.io.DataIter):
 
         img1_list = np.array(img1_list)
         img2_list = np.array(img2_list)
-        label_list = np.expand_dims(np.array(label_list),1)
+        if self.data_type == 'stereo':
+            label_list = np.expand_dims(np.array(label_list),1)
 
         self.caffe_net.blobs['blob0'].data[:] = img1_list
         self.caffe_net.blobs['blob1'].data[:] = img2_list
@@ -419,10 +503,12 @@ class caffe_iterator(mx.io.DataIter):
 
             self.label.append([])
             for j in range(self.batch_size):
-                self.label[i].append(
-                    util_cython.resize(self.caffe_net.blobs['disp_gt_aug'].data[j, 0].astype(np.float64),
-                                       self.label_shape[i][1],
-                                       self.label_shape[i][0]))
+                if self.data_type == 'stereo':
+                    self.label[i].append(
+                        util_cython.resize(self.caffe_net.blobs['disp_gt_aug'].data[j, 0].astype(np.float64),
+                                           self.label_shape[i][1],
+                                           self.label_shape[i][0]))
+
             self.label[i] = mx.nd.array(np.expand_dims(np.array(self.label[i]),1))
 
         self.current += self.batch_size
@@ -480,10 +566,40 @@ class caffe_iterator(mx.io.DataIter):
                     worker.terminate()
 
 
+class DummyIter(mx.io.DataIter):
+    """
+    A dummy iterator that always return the same batch,
+    used for speed testing and overfitting
+    """
+    def __init__(self, real_iter):
+        super(DummyIter, self).__init__()
+        self.real_iter = real_iter
+        self.provide_data = real_iter.provide_data
+        self.provide_label = real_iter.provide_label
+        self.batch_size = real_iter.batch_size
+        self.count = -1
+
+        for batch in real_iter:
+            self.the_batch = batch
+            break
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        self.count += 1
+        if self.count > 100000:
+            raise StopIteration
+        return self.the_batch
+
+    def reset(self):
+        self.count = -1
+
 def crop_or_pad(img1, img2, label, shapes, is_train, data_type):
 
     y_ori, x_ori = img1.shape[:2]
     y, x = shapes[1:]
+    # print y,x ,y_ori,x_ori
     if x == x_ori and y == y_ori:
         return img1, img2, label
 
@@ -512,8 +628,8 @@ def crop_or_pad(img1, img2, label, shapes, is_train, data_type):
             return tmp1, tmp2, None
     elif y<=y_ori and x <= x_ori:
         # cropping
-        x_begin = randint(0, x_ori - x )
-        y_begin = randint(0, y_ori - y )
+        x_begin = randint(0, x_ori - x)
+        y_begin = randint(0, y_ori - y)
         if label is not None:
             return img1[y_begin:y_begin+y, x_begin:x_begin+x, :], img2[y_begin:y_begin+y, x_begin:x_begin+x, :],\
                 label[y_begin:y_begin+y, x_begin:x_begin+x]
@@ -523,18 +639,18 @@ def crop_or_pad(img1, img2, label, shapes, is_train, data_type):
 def get_augment(img1, img2, label, data_type):
 
     rows, cols, _ = img1.shape
-    rotate_range = cfg.dataset.rotate_range
-    translation_range = cfg.dataset.translation_range
+    # rotate_range = cfg.dataset.rotate_range
+    # translation_range = cfg.dataset.translation_range
     gaussian_noise = cfg.dataset.gaussian_noise
 
     rgb_cof = np.random.uniform(low=cfg.dataset.rgbmul[0], high=cfg.dataset.rgbmul[1], size=3)
     gaussian_noise_scale = uniform(0.0, gaussian_noise)
-    rotate = randint(-rotate_range, rotate_range)
-    rotation_matrix = cv2.getRotationMatrix2D((cols / 2, rows / 2), rotate, 1)
+    # rotate = randint(-rotate_range, rotate_range)
+    # rotation_matrix = cv2.getRotationMatrix2D((cols / 2, rows / 2), rotate, 1)
 
-    tx = randint(int(-img1.shape[1] * translation_range), int(img1.shape[1] * translation_range))
-    ty = randint(int(-img1.shape[0] * translation_range), int(img1.shape[0] * translation_range))
-    M = np.float32([[1, 0, tx], [0, 1, ty]])
+    # tx = randint(int(-img1.shape[1] * translation_range), int(img1.shape[1] * translation_range))
+    # ty = randint(int(-img1.shape[0] * translation_range), int(img1.shape[0] * translation_range))
+    # M = np.float32([[1, 0, tx], [0, 1, ty]])
 
     beta = uniform(cfg.dataset.beta[0], cfg.dataset.beta[1])
     alpha = uniform(cfg.dataset.alpha[0], cfg.dataset.alpha[1])
@@ -544,10 +660,10 @@ def get_augment(img1, img2, label, data_type):
     img2 = img2 * rgb_cof + np.random.normal(loc=0.0, scale=gaussian_noise_scale,size=img1.shape)
 
     # rotation
-    if data_type != 'stereo':
-        img1 = cv2.warpAffine(img1, rotation_matrix, (cols, rows))
-        img2 = cv2.warpAffine(img2, rotation_matrix, (cols, rows))
-        label = cv2.warpAffine(label, rotation_matrix, (cols, rows))
+    # if data_type != 'stereo':
+    #     img1 = cv2.warpAffine(img1, rotation_matrix, (cols, rows))
+    #     img2 = cv2.warpAffine(img2, rotation_matrix, (cols, rows))
+    #     label = cv2.warpAffine(label, rotation_matrix, (cols, rows))
 
     # translation
     # img1 = cv2.warpAffine(img1, M, (cols, rows))
@@ -581,10 +697,10 @@ def get_augment(img1, img2, label, data_type):
     # label = label.astype(np.float64)
     # label = util_cython.resize(label,x_shape,y_shape)
     # label[label==0] = np.nan
-    if  uniform(0,1) < cfg.dataset.flip_rate:
-
-        img1 = cv2.flip(img1,0)
-        img2 = cv2.flip(img2,0)
-        label = cv2.flip(label,0)
+    # if  uniform(0,1) < cfg.dataset.flip_rate:
+    #
+    #     img1 = cv2.flip(img1,0)
+    #     img2 = cv2.flip(img2,0)
+    #     label = cv2.flip(label,0)
 
     return img1, img2, label
