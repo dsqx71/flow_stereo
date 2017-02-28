@@ -1,4 +1,8 @@
 all:
-	cd utils; python cython_setup.py build_ext; mv ./build/lib.linux-x86_64-2.7/util_cython.so ./; rm -rf build; cd ../
+    # build cython extension
+	cd cython; python setup.py build_ext; mv ./build/lib*/util_cython.so ./; rm -rf build; cd ../;
+	# install guided filter
+	pip install git+https://github.com/tody411/GuidedFilter.git --user
 clean:
-	cd utils; rm *.so *.c; cd ../
+    # remove cython extension
+	cd cython; rm *.so *.c; cd ../

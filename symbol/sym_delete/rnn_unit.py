@@ -2,7 +2,7 @@ from collections import namedtuple
 
 import mxnet as mx
 
-from symbol.enet_symbol import get_conv
+from symbol.sym_delete.enet_symbol import get_conv
 
 RNNState = namedtuple('RNNState', ['h'])
 RNNParam = namedtuple('RNNParam', ['i2h_weight', 'i2h_bias',

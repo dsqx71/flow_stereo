@@ -1,19 +1,17 @@
 import atexit
 import logging
 import multiprocessing as mp
+from sklearn import utils
 from collections import namedtuple
 from random import randint, uniform
+
 import Queue
 import cv2
 import mxnet as mx
 import numpy as np
-import os
-import matplotlib.pyplot as plt
-from sklearn import utils
-from config import cfg
-from utils import util_cython
 
-
+from config.general_config import cfg
+from cython import util_cython
 
 DataBatch = namedtuple('DataBatch', ['data', 'label', 'pad', 'index'])
 class Dataiter_training(mx.io.DataIter):
@@ -370,7 +368,7 @@ class caffe_iterator(mx.io.DataIter):
                  template = cfg.dataset.prototxt_template,
                  caffe_prototxt = cfg.dataset.prototxt_dir,
                  caffe_pretrain = cfg.dataset.pretrain_caffe,
-                 n_thread=15, be_shuffle=True, augment=True,use_rnn=False):
+                 n_thread=15, be_shuffle=True, augment=True, use_rnn=False, is_bilinear=True):
 
         import caffe
         super(caffe_iterator, self).__init__()
@@ -379,6 +377,7 @@ class caffe_iterator(mx.io.DataIter):
         self.label_shape = label_shape
         self.input_shape = input_shape
         self.data_dirs = utils.shuffle(dataset.dirs) if self.be_shuffle else dataset.dirs
+        self.is_bilinear = is_bilinear
 
         self.num_imgs = len(self.data_dirs)
         self.batch_shape = batch_shape
@@ -483,33 +482,40 @@ class caffe_iterator(mx.io.DataIter):
         self.aux_list = []
 
         for i in range(self.current, self.current + self.batch_size):
+
             img1, img2, label, aux = self.result_queue.get()
-            img1_list.append(img1.transpose(2,0,1))
-            img2_list.append(img2.transpose(2,0,1))
+            img1_list.append(img1.transpose(2, 0, 1))
+            img2_list.append(img2.transpose(2, 0, 1))
             label_list.append(label)
             self.aux_list.append(aux)
 
         img1_list = np.array(img1_list)
         img2_list = np.array(img2_list)
+
         if self.data_type == 'stereo':
-            label_list = np.expand_dims(np.array(label_list),1)
+            label_list = np.expand_dims(np.array(label_list), 1)
 
         self.caffe_net.blobs['blob0'].data[:] = img1_list
         self.caffe_net.blobs['blob1'].data[:] = img2_list
         self.caffe_net.blobs['blob2'].data[:] = label_list
         self.caffe_net.forward()
 
-        for i in range(len(self.label_shape)):
-
-            self.label.append([])
-            for j in range(self.batch_size):
-                if self.data_type == 'stereo':
-                    self.label[i].append(
-                        util_cython.resize(self.caffe_net.blobs['disp_gt_aug'].data[j, 0].astype(np.float64),
-                                           self.label_shape[i][1],
-                                           self.label_shape[i][0]))
-
-            self.label[i] = mx.nd.array(np.expand_dims(np.array(self.label[i]),1))
+        # for i in range(len(self.label_shape)):
+        #
+        #     self.label.append([])
+        #     for j in range(self.batch_size):
+        #         if self.data_type == 'stereo':
+        #             if self.is_bilinear:
+        #                 self.label[i].append(
+        #                     util_cython.resize(self.caffe_net.blobs['disp_gt_aug'].data[j, 0].astype(np.float64),
+        #                                        self.label_shape[i][1],
+        #                                        self.label_shape[i][0]))
+        #             else:
+        #                 factor = int(self.caffe_net.blobs['disp_gt_aug'].data[j, 0].shape[0] / self.label_shape[i][0])
+        #                 self.label[i].append(self.caffe_net.blobs['disp_gt_aug'].data[j, 0,::factor,::factor])
+        #         else:
+        #             print 'not implement'
+        #     self.label[i] = mx.nd.array(np.expand_dims(np.array(self.label[i]),1))
 
         self.current += self.batch_size
 
@@ -521,8 +527,8 @@ class caffe_iterator(mx.io.DataIter):
                 mx.nd.array(self.caffe_net.blobs['img1_aug'].data.copy())]
 
     def getlabel(self):
-
-        return self.label
+        # print self.caffe_net.blobs['stereo_downsample1'].data.shape
+        return [mx.nd.array(self.caffe_net.blobs['stereo_downsample1'].data)]
 
     @property
     def getaux(self):

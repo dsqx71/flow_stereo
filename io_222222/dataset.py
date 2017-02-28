@@ -1,7 +1,12 @@
+"""
+The formats and organizations of datasets are different from each other,
+therefore we define Dataset class which can decouple Dataloaders from specific datasets.
+"""
 import glob
 import cv2
 import numpy as np
-from config import cfg
+
+from config.general_config import cfg
 from utils import util
 
 class DataSet:
@@ -310,8 +315,8 @@ class KittiDataset(DataSet):
                 
     @staticmethod
     def shapes():
-        # kitti data have different shapes, partly because of they were rectified with different calibration matrixes.
-        return 375, 1242
+        # kitti data have different shapes, partly because they were rectified with different calibration matrixes.
+        return 370,1224
 
     @staticmethod
     def name():

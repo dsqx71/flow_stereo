@@ -1,6 +1,6 @@
 #!python
 # cython: boundscheck=False , wraparound=False, overflowcheck=False,
-# optimize.use_switch=True,optimize.unpack_method_calls=True,
+# optimize.use_switch=True, optimize.unpack_method_calls=True,
 import cython
 import numpy as np
 cimport numpy as np
@@ -18,7 +18,7 @@ cpdef resize(np.ndarray[np.float64_t, ndim=2] src, int x_shape, int y_shape, flo
     This function is different from opencv's counterpart! it will consider NaN_point ratio.
     Parameters
     ----------
-    src : ndarray with np.float64
+    src : array with np.float64
         scr only has two axis
     x_shape : int
         target width
@@ -82,5 +82,5 @@ cpdef resize(np.ndarray[np.float64_t, ndim=2] src, int x_shape, int y_shape, flo
             if accum_nan / (accum_weight+1e-14) > threshold:
                 dst[desty,destx] = np.nan
             else:
-                dst[desty,destx] = accum_value / (accum_weight )
+                dst[desty,destx] = accum_value / (accum_weight)
     return dst

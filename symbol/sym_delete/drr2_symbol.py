@@ -1,6 +1,8 @@
 import mxnet as mx
 from symbol.enet_symbol import  get_conv
-from symbol.res_unit import residual_unit
+
+from symbol.sym_delete.res_unit import residual_unit
+
 
 def detect(data, output_dim, name):
 

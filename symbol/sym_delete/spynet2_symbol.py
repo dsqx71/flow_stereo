@@ -1,7 +1,9 @@
 import mxnet as mx
+
+from config.general_config import cfg
 from symbol.dispnet_symbol import get_loss
-from symbol.res_unit import residual_unit
-from config import cfg
+from symbol.sym_delete.res_unit import residual_unit
+
 
 def conv_unit(sym, name, weights, bias):
 

@@ -1,146 +1,75 @@
 import mxnet as mx
-import numpy as np
-from config import cfg
-from symbol.drr_symbol import detect_replace_refine
+from .symbol_util import *
 
-class SparseRegressionLoss(mx.operator.NumpyOp):
-    '''
-        if label is nan, don't compute gradient
-    '''
-    def __init__(self,is_l1,loss_scale):
-
-        super(SparseRegressionLoss, self).__init__(False)
-        self.is_L1 = is_l1
-        self.loss_scale = loss_scale
-
-    def list_arguments(self):
-
-        return ['data', 'label']
-
-    def list_outputs(self):
-
-        return ['output']
-
-    def infer_shape(self, in_shape):
-
-        data_shape = in_shape[0]
-        label_shape = in_shape[0]
-        output_shape = in_shape[0]
-
-        return [data_shape, label_shape], [output_shape]
-
-    def forward(self,in_data,out_data):
-
-        x = in_data[0]
-        y = out_data[0]
-        y[:] = x
-
-    def backward(self, out_grad, in_data, out_data, in_grad):
-
-        label = in_data[1]
-        y = out_data[0]
-        # ignore nan
-        mask_nan = (label!=label)
-        label[mask_nan] = y[mask_nan]
-
-
-        # ignore sub-pixel error
-        # mask2 = (np.abs(y-label) < 0.5)
-        # # ignore too large displacement
-        # mask3 = label > 250
-        # mask4 = label > 450
-        # # pay attention to large error
-        # mask5 = np.abs(label-y) > 3
-        # mask6 = np.abs(label-y) > 10
-        # # pay attention to small displacement
-        # mask7 = label < 45
-        # mask8 = label < 30
-        # mask9 = label < 15
-        # mask10 = label < 10
-
-        tmp = np.ones_like(label)
-        tmp[mask_nan] = 0
-
-        mask_outlier = (np.abs(label-y)>=2.0) & (np.abs(label-y)/(label + 1E-2) >= 0.03)
-        tmp[~mask_outlier] = tmp[~mask_outlier] * 0.1
-
-        # ignore occlusion
-        # if y.shape[2]>200:
-        #     xv, yv = np.meshgrid(np.arange(y.shape[2]), np.arange(y.shape[3]))
-        #     mask_occ = label > yv.T
-        #     tmp[mask_occ] = 0.01
-
-        # tmp[mask2] = tmp[mask2] * 0.01
-        # tmp[mask3] = tmp[mask3] * 0.3
-        # tmp[mask4] = tmp[mask4] * 0.01
-        # tmp[mask5] = tmp[mask5] * 3.0
-        # tmp[mask6] = tmp[mask6] * 3.0
-        # tmp[mask7] = tmp[mask7] * 2.0
-        # tmp[mask8] = tmp[mask8] * 2.0
-        # tmp[mask9] = tmp[mask9] * 2.0
-        # tmp[mask10] = tmp[mask10] * 2.0
-        # #ignore left part, since there is no information to support the estimation of left part
-        # tmp[:, :, :, :100] = tmp[:, :, :, :100] * 0.3
-        # tmp[:, :, :, :50] = tmp[:, :, :, :50] * 0.3
-        # tmp[:, :, :, :15] = tmp[:, :, :, :15] * 0.1
-
-        dx = in_grad[0]
-        if self.is_L1:
-            dx[:] = np.sign(y-label)*self.loss_scale*tmp
-        else:
-            dx[:] = (y-label)*self.loss_scale*tmp
-
-
-def conv_unit(sym, name, weights, bias):
-    
-    conv1 = mx.sym.Convolution(data=sym,pad=(3, 3), kernel=(7, 7),stride=(2, 2),num_filter=64,
+def conv_share(sym, name, weights, bias):
+    """
+     siamese network
+    """
+    conv1 = mx.sym.Convolution(data=sym, pad=(3, 3), kernel=(7, 7), stride=(2, 2), num_filter=64,
                                weight=weights[0], bias=bias[0], name='conv1' + name)
-    conv1 = mx.sym.LeakyReLU(data = conv1,  act_type = 'leaky', slope  = 0.1 )
+    conv1 = mx.sym.LeakyReLU(data = conv1,  act_type = 'leaky', slope  = 0.1)
 
-    conv2 = mx.sym.Convolution(data = conv1, pad  = (2,2),  kernel=(5,5),stride=(2,2),num_filter=128,
-                                 weight = weights[1], bias = bias[1], name='conv2' + name)
+    conv2 = mx.sym.Convolution(data = conv1, pad  = (2,2),  kernel=(5,5), stride=(2,2), num_filter=128,
+                                 weight=weights[1], bias=bias[1], name='conv2' + name)
     conv2 = mx.sym.LeakyReLU(data = conv2, act_type = 'leaky', slope = 0.1)
 
-    return conv1,conv2,
+    return conv1, conv2
        
-def stereo_net(net_type='stereo', is_sparse = False,
-               loss0_scale=0.00,
-               loss1_scale=0.20, loss2_scale=0.10,
-               loss3_scale=0.005, loss4_scale=0.0,
-               loss5_scale=0.00, loss6_scale=0.0,
-               ):
+def dispnet(loss_scale, net_type='stereo', is_sparse = False):
+    """
+    create Dispnet or Flownet symbol. There is a slight difference between Dispnet and Flownet
 
+    Parameters
+    ----------
+    loss_scale : dict of loss_scale,
+        Dispnet and Flownet have six loss functions which have different sizes and loss scale.
+        Example :
+            {'loss1': 1.00, 'loss2': 0.00, 'loss3': 0.00, 'loss4':0.00, 'loss5':0.00,'loss6':0.00}
+        'loss1' denotes the loss function which has the largest size
+    net_type : str
+        Should be 'stereo' or 'flow', default is 'stereo'
+    is_sparse : bool
+        indiate whether label contains NaN, default is False
+        if the labels are sparse, it will call SparseRegressionLoss, Otherwise it use MAERegressionLoss
+
+    Returns
+    ----------
+    net : symbol
+        dispnet or flownet
+
+    References
+    ----------
+        [1] A Large Dataset to Train Convolutional Networks for Disparity, Optical Flow, and Scene Flow Estimation
+        [2] FlowNet: Learning Optical Flow with Convolutional Networks
+    """
     img1 = mx.sym.Variable('img1')
     img2 = mx.sym.Variable('img2')
+
     if net_type == 'stereo':
         output_dim = 1
-    else:
+    elif net_type == 'flow':
         output_dim = 2
 
-    downsample0 = mx.sym.Variable(net_type + '_downsample1')
-    downsample1 = mx.sym.Variable(net_type + '_downsample2')
-    downsample2 = mx.sym.Variable(net_type + '_downsample3')
-    downsample3 = mx.sym.Variable(net_type + '_downsample4')
-    downsample4 = mx.sym.Variable(net_type + '_downsample5')
-    downsample5 = mx.sym.Variable(net_type + '_downsample6')
-    downsample6 = mx.sym.Variable(net_type + '_downsample7')
+    # six loss functions with different output sizes
+    labels = {'loss{}'.format(i) :  mx.sym.Variable(net_type + '_label{}'.format(i)) for i in range(1, 7)}
+    prediction = {}
+    loss = []
 
-    weights = [mx.sym.Variable('share{}_weight'.format(i)) for i in range(1,4)]
-    bias    = [mx.sym.Variable('share{}_bias'.format(i)) for i in range(1,4)]
+    # siamese network, two branches share the same weights
+    weights = [mx.sym.Variable('share{}_weight'.format(i)) for i in range(1,3)]
+    bias    = [mx.sym.Variable('share{}_bias'.format(i)) for i in range(1,3)]
+    conv1_img1, conv2_img1 = conv_share(img1, 'img1', weights, bias)
+    conv1_img2, conv2_img2 = conv_share(img2, 'img2', weights, bias)
 
-    conv1_img1, conv2_img1 = conv_unit(img1, 'img1', weights, bias)
-    conv1_img2, conv2_img2 = conv_unit(img2, 'img2', weights, bias)
-
+    # difference between DispNet and FlowNet
     if net_type =='stereo':
         corr = mx.sym.Correlation1D(data1=conv2_img1, data2=conv2_img2, pad_size=40, kernel_size=1,
                                     max_displacement=40, stride1=1, stride2=1)
-
         conv_redir = mx.sym.Convolution(data=conv2_img1, pad=(0, 0), kernel=(1, 1), stride=(1, 1), num_filter=64,
                                         name='conv_redir')
-
         conv_redir = mx.sym.LeakyReLU(data=conv_redir, act_type='leaky', slope=0.1)
         concat = mx.sym.Concat(corr, conv_redir)
-    else:
+    elif net_type == 'flow':
         conv3_img1 = mx.sym.Convolution(data=conv2_img1, pad=(2, 2), kernel=(5, 5), stride=(2, 2), num_filter=256,
                                 weight=weights[2], bias=bias[2], name='conv3_img1')
         conv3_img1 = mx.sym.LeakyReLU(data=conv3_img1, act_type='leaky', slope=0.1)
@@ -151,7 +80,6 @@ def stereo_net(net_type='stereo', is_sparse = False,
 
         corr = mx.sym.Correlation(data1=conv3_img1, data2=conv3_img2, pad_size=20, kernel_size=1,
                                     max_displacement=20, stride1=1, stride2=2)
-
         conv_redir = mx.sym.Convolution(data=conv3_img1, pad=(0, 0), kernel=(1, 1), stride=(1, 1), num_filter=64,
                                         name='conv_redir')
         conv_redir = mx.sym.LeakyReLU(data=conv_redir, act_type='leaky', slope=0.1)
@@ -159,9 +87,10 @@ def stereo_net(net_type='stereo', is_sparse = False,
 
     if net_type =='stereo':
         stride = (2,2)
-    else:
+    elif net_type == 'flow':
         stride = (1,1)
 
+    # The structure below is similar to VGG
     conv3a = mx.sym.Convolution(concat, pad=(2, 2), kernel=(5, 5), stride=stride, num_filter=256, name='conv3a')
     conv3a = mx.sym.LeakyReLU(data=conv3a, act_type='leaky', slope=0.1)
 
@@ -187,6 +116,7 @@ def stereo_net(net_type='stereo', is_sparse = False,
     conv6b = mx.sym.LeakyReLU(data=conv6b, act_type='leaky', slope=0.1, )
 
     pr6 = mx.sym.Convolution(conv6b,pad= (1,1),kernel=(3,3),stride=(1,1),num_filter=output_dim,name='pr6')
+    prediction['loss6'] = pr6
 
     upsample_pr6to5 = mx.sym.Deconvolution(pr6, pad=(1,1), kernel=(4,4), stride=(2,2), num_filter=1,
                                            name='upsample_pr6to5',no_bias=True)
@@ -197,6 +127,7 @@ def stereo_net(net_type='stereo', is_sparse = False,
     iconv5 = mx.sym.Convolution(concat_tmp,pad = (1,1),kernel=(3,3),stride=(1,1),num_filter = 512,name='iconv5')
 
     pr5  = mx.sym.Convolution(iconv5, pad = (1,1),kernel=(3,3),stride=(1,1),num_filter = output_dim,name='pr5')
+    prediction['loss5'] = pr5
 
     upconv4 = mx.sym.Deconvolution(iconv5,pad = (1,1),kernel= (4,4),stride = (2,2),num_filter=256,name='upconv4',no_bias=True)
     upconv4 = mx.sym.LeakyReLU(data = upconv4,act_type = 'leaky',slope  = 0.1 )
@@ -206,6 +137,7 @@ def stereo_net(net_type='stereo', is_sparse = False,
     concat_tmp2 = mx.sym.Concat(conv4b,upconv4,upsample_pr5to4)
     iconv4  = mx.sym.Convolution(concat_tmp2,pad = (1,1),kernel = (3,3),stride=(1,1),num_filter=256,name='iconv4')
     pr4 = mx.sym.Convolution(iconv4,pad=(1,1),kernel=(3,3),stride=(1,1),num_filter=output_dim,name='pr4')
+    prediction['loss4'] = pr4
 
     upconv3 = mx.sym.Deconvolution(iconv4,pad=(1,1),kernel=(4,4),stride=(2,2),num_filter=128,name='upconv3',no_bias=True)
     upconv3 = mx.sym.LeakyReLU(data = upconv3,act_type = 'leaky',slope  = 0.1 )
@@ -214,58 +146,31 @@ def stereo_net(net_type='stereo', is_sparse = False,
     concat_tmp3 = mx.sym.Concat(conv3b,upconv3,upsample_pr4to3)
     iconv3 = mx.sym.Convolution(concat_tmp3,pad=(1,1),kernel=(3,3),stride=(1,1),num_filter = 128,name='iconv3')
     pr3 = mx.sym.Convolution(iconv3,pad = (1,1), kernel = (3,3), stride = (1,1),num_filter = output_dim,name='pr3')
-
+    prediction['loss3'] = pr3
 
     upconv2 = mx.sym.Deconvolution(iconv3,pad=(1,1),kernel=(4,4),stride=(2,2),num_filter=64,name='upconv2',no_bias=True)
     upconv2 = mx.sym.LeakyReLU(data = upconv2,act_type = 'leaky',slope  = 0.1  )
 
     upsample_pr3to2 = mx.sym.Deconvolution(pr3,pad = (1,1),kernel= (4,4),stride=(2,2),num_filter=1,name='upsample_pr3to2',no_bias=True)
-
     concat_tmp4 = mx.sym.Concat(conv2_img1,upconv2,upsample_pr3to2)
-
     iconv2 = mx.sym.Convolution(concat_tmp4,pad = (1,1),kernel = (3,3),stride= (1,1),num_filter = 64,name='iconv2')
     pr2 = mx.sym.Convolution(iconv2,pad = (1,1),kernel=(3,3),stride = (1,1),num_filter = output_dim,name='pr2')
+    prediction['loss2'] = pr2
 
     upconv1 = mx.sym.Deconvolution(iconv2,pad=(1,1),kernel=(4,4),stride=(2,2),num_filter = 32,name='upconv1',no_bias=True)
     upconv1 = mx.sym.LeakyReLU(data = upconv1,act_type = 'leaky',slope  = 0.1 )
-
     upsample_pr2to1 = mx.sym.Deconvolution(pr2,pad = (1,1),kernel= (4,4),stride=(2,2),num_filter=1,name='upsample_pr2to1',no_bias=True)
-
     concat_tmp5 = mx.sym.Concat(conv1_img1,upconv1,upsample_pr2to1)
     iconv1 = mx.sym.Convolution(concat_tmp5,pad=(1,1),kernel = (3,3),stride=(1,1),num_filter=32,name='iconv1')
     pr1 = mx.sym.Convolution(iconv1,pad=(1,1),kernel=(3,3),stride=(1,1),num_filter=output_dim,name='pr1')
+    prediction['loss1'] = pr1
 
-    # drr
-    pr = mx.sym.Deconvolution(pr1, pad=(1, 1), kernel=(4, 4), stride=(2, 2), num_filter=1, name='init_label.drr',
-                              no_bias=True)
-    data = mx.sym.Concat(img1, img2)
-    pr_final, map, replace_value, refine_value = detect_replace_refine(init_label=pr, input_feature=data, output_dim=output_dim, name='drr')
+    # ignore the loss functions with loss scale of zero
+    for key in loss_scale:
+        if loss_scale[key] > 0.0:
+            loss.append(get_loss(prediction[key], labels[key], loss_scale[key], name=key,
+                                 get_input=False, is_sparse = is_sparse, type=net_type))
+    net = mx.sym.Group(loss)
+    return net
 
-    loss = get_loss(pr_final, downsample0, 1.00, name='loss', get_data=False, is_sparse=is_sparse, type=net_type)
-    loss0 = get_loss(pr, downsample0, 1.00, name='loss0', get_data=False, is_sparse = is_sparse,type=net_type)
-    loss1 = get_loss(pr1, downsample1, 0.20, name='loss1', get_data=False, is_sparse = is_sparse,type=net_type)
-    loss2 = get_loss(pr2, downsample2, 0.10 , name='loss2', get_data=False, is_sparse = is_sparse,type=net_type)
-    loss3 = get_loss(pr3, downsample3, 0.0, name='loss3', get_data=False, is_sparse = is_sparse,type=net_type)
-    loss4 = get_loss(pr4, downsample4, 0.0, name='loss4', get_data=False, is_sparse = is_sparse,type=net_type)
-    loss5 = get_loss(pr5, downsample5, 0.00, name='loss5', get_data=False, is_sparse = is_sparse,type=net_type)
-    loss6 = get_loss(pr6, downsample6, 0.00, name='loss6', get_data=False, is_sparse = is_sparse,type=net_type)
 
-    map = mx.sym.BlockGrad(data=map,name='map_tmp')
-    replace = mx.sym.BlockGrad(data=replace_value,name='replace')
-    refine = mx.sym.BlockGrad(data=refine_value,name='refine')
-    net = mx.sym.Group([loss, map,replace,refine])
-
-    return loss
-
-def get_loss(data,label,grad_scale,name,get_data=False, is_sparse = False, type='stereo'):
-
-    if type == 'stereo':
-        data = mx.sym.Activation(data=data, act_type='relu',name=name+'relu')
-
-    if  is_sparse:
-        loss = SparseRegressionLoss(is_l1=False, loss_scale=grad_scale)
-        loss = loss(data=data, label=label)
-    else:
-        loss = mx.sym.MAERegressionOutput(data=data, label=label, name=name, grad_scale=grad_scale)
-
-    return (loss,data) if get_data else loss

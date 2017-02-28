@@ -1,7 +1,8 @@
 import mxnet as mx
 import numpy as np
-from config import cfg
-from symbol.drr_symbol import detect_replace_refine
+
+from symbol.sym_delete.drr_symbol import detect_replace_refine
+
 
 class SparseRegressionLoss(mx.operator.NumpyOp):
     '''

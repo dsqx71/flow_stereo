@@ -1,41 +1,47 @@
 import argparse
 import logging
-import mxnet as mx
-import dataiter
-import dataset
-import metric
-import numpy as np
 
-from config import cfg, batchsize
-from symbol import dispnet_symbol, enet_symbol, rnn_symbol, \
-    spynet_symbol, res_symbol,cnn_symbol,stereo_rnn_symbol,\
+import mxnet as mx
+
+import data.dataset
+from config.general_config import cfg, batchsize
+from data import dataloader, dataset
+from symbol import dispnet_symbol, enet_symbol, spynet_symbol, stereo_rnn_symbol, \
     spynet2_symbol,spynet3_symbol,flownet_simple_symbol
-from utils import util
+from symbol.sym_delete import res_symbol
+from utils import util, metric
 
 if __name__ == '__main__':
 
     # logging
     logging.basicConfig(level=logging.INFO, format='%(asctime)s  %(message)s')
-
-    # parse parameter
     parser = argparse.ArgumentParser()
-    parser.add_argument('--continue', action='store', dest='con', type=int, default=0, help='begin epoch of training')
-    parser.add_argument('--lr', action='store', dest='lr', type=float, default=1e-4, help='learning rate')
-    parser.add_argument('--model', action='store', dest='model', type=str,default='dispnet',help='choose symbol',
-        				choices=['dispnet', 'enet', 'rnn', 'spynet1', 'resnet','enet2','enet3','spynet2','spynet3','flownets'])
+
+    # general
+    parser.add_argument('--epoch', action='store', type=int, default=0, help='continue training')
+    parser.add_argument('--lr', action='store', type=float, default=1e-4, help='learning rate')
+    parser.add_argument('--model', action='store', type=str, default='dispnet', help='model name',
+        				choices=['dispnet', 'enet', 'rnn', 'spynet1','resnet',
+                                 'enet2', 'enet3', 'spynet2', 'spynet3', 'flownets'])
     parser.add_argument('--gpus', type=str, default='0', help='the gpus will be used, e.g "0,1,2,3"')
-    parser.add_argument('--dataset', type=str, default='synthesis', help='choose dataset',
-        				choices=['flyingthing', 'flyingchair', 'kitti', 'tusimple', 'flyingthing1000',
-                                 'flyingchair1000','multidataset'])
-    parser.add_argument('--thread', type=int, default=30, help='number of thread in iterator')
-    parser.add_argument('--type', type=str, default='stereo',
-        				choices=['stereo', 'flow'], help='stereo or optical flow')
-    parser.add_argument('--iterator', type=str, default='caffeiter',
-						help=' there are three iterator. caffeiter and record only support stereo, pythoniter support both of them',
-						choices=['caffeiter', 'pythoniter', 'record'])
-    parser.add_argument('--optimizer', type=str, default='adam')
+    parser.add_argument('--dataset', type=str, default='synthesis', help='dataset name',
+        				choices=['flyingthing', 'flyingchair', 'kitti',
+                                 'tusimple','flyingthing1000', 'flyingchair1000','multidataset'])
+    parser.add_argument('--optimizer', type=str, default='adam', help='optimizer name')
+
+    # data loader
+    parser.add_argument('--thread', type=int, default=10, help='threads in iterator')
+    parser.add_argument('--type', type=str, default='stereo', choices=['stereo', 'flow'], help='stereo or optical flow')
+    parser.add_argument('--iterator', type=str, default='caffeiter', help='data iterator name',
+                        choices=['caffeiter', 'pythoniter', 'record'])
     parser.add_argument('--which_scale', type=int, default=0, help='which scale does metric consider')
+    parser.add_argument('--is_bilinear', type=int, default=1, help='resize method', choices=[0, 1])
+
+    # parse args
     cmd = parser.parse_args()
+    cmd.is_bilinear = bool(cmd.is_bilinear)
+    logging.info("Called with argument: {}".format(cmd))
+
 
     ctx = [mx.gpu(int(i)) for i in cmd.gpus.split(',')]
     use_rnn = False
@@ -43,11 +49,11 @@ if __name__ == '__main__':
     fixed_param_names=None
     label_sparse = True if  cmd.dataset == 'kitti' or cmd.dataset == 'tusimple' or cmd.dataset=='multidataset' else False
     lr_mult = None
-    print label_sparse
+
     # choose symbol and load args
     if cmd.model == 'dispnet':
-        batchsize = (2, 3, 320, 1152)
-        label_shape = [(batchsize[2] / (2**i), batchsize[3] / (2**i)) for i in range(0, 1)]
+        batchsize = (8, 3, 320, 704)
+        label_shape = [(batchsize[2] / (2**i), batchsize[3] / (2**i)) for i in range(1,2)]
         net = dispnet_symbol.stereo_net(cmd.type, label_sparse)
         # fixed_param_names = [item for item in net.list_arguments() if 'drr' not in item]
         # fixed_param_names.extend(item for item in net.list_arguments() if 'init_label.drr' in item)
@@ -66,7 +72,7 @@ if __name__ == '__main__':
 
         batchsize = (4, 3, 320, 512)
         label_shape = [(batchsize[2] / (2 ** i), batchsize[3] / (2 ** i)) for i in range(1, 3)]
-        net = flownet_simple_symbol.flownet_simple(cmd.type,label_sparse)
+        net = flownet_simple_symbol.flownet_simple(cmd.type, label_sparse)
 
     elif cmd.model == 'enet':
         batchsize = (8, 3, 384, 768)
@@ -107,7 +113,7 @@ if __name__ == '__main__':
         net = spynet3_symbol.spynet_symbol(type=cmd.type)
         # fixed_param_names = [item for item in net.list_arguments() if 'v5' not in item]
 
-    if cmd.con == 0:
+    if cmd.epoch == 0:
         if cmd.model =='rnn':
             _, args, auxs = mx.model.load_checkpoint(cfg.MODEL.stereomatching_checkpoint, 18)
         else:
@@ -115,31 +121,32 @@ if __name__ == '__main__':
             auxs = None
     else:
         args, auxs = util.load_checkpoint(
-            cfg.MODEL.checkpoint_prefix + cmd.type + '_' + cmd.model, cmd.con)
-        logging.info("load the {} th epoch paramaters".format(cmd.con))
+            cfg.MODEL.checkpoint_prefix + cmd.type + '_' + cmd.model, cmd.epoch)
+        logging.info("load the {} th epoch paramaters".format(cmd.epoch))
 
-    mx.model.save_checkpoint('/home/xudong/model_zoo/dispnet_drr', 0, net, args, auxs)
+    mx.model.save_checkpoint('/home/xudong/model_zoo/dispnet', 0, net, args, auxs)
     # dataset and iterator
     if cmd.dataset == 'kitti':
         # data_set = dataset.KittiDataset(cmd.type, '2015')
         # data_set.dirs.extend(dataset.KittiDataset(cmd.type, '2012').dirs[:100])
         data_set = dataset.KittiDataset(cmd.type, '2015')
+        # data_set.dirs = data_set.dirs[:180]
         data_set.dirs.extend(data_set.dirs)
         data_set.dirs.extend(data_set.dirs)
         data_set.dirs.extend(data_set.dirs)
         # data_set.dirs = data_set.dirs[:160]
-        data_set.dirs.extend(dataset.KittiDataset(cmd.type, '2012').dirs)
+        # data_set.dirs.extend(dataset.KittiDataset(cmd.type, '2012').dirs)
         # data_set.dirs.extend(data_set.dirs)
         # data_set.dirs.extend(data_set.dirs)
         # data_set.dirs.extend(data_set.dirs)
         # data_set.dirs.extend(data_set.dirs)
         # data_set.dirs.extend(data_set.dirs)
-        input_shape = (350, 1200)
+        input_shape = (370, 1224)
     elif cmd.dataset == 'tusimple':
         data_set = dataset.TusimpleDataset(num_data=4000)
         input_shape = data_set.shapes()
     elif cmd.dataset == 'flyingthing':
-        data_set = dataset.SythesisData(cmd.type, ['flyingthing3d','Driving','Monkaa'])
+        data_set = dataset.SythesisData(cmd.type, ['flyingthing3d'])
         input_shape = data_set.shapes()
     elif cmd.dataset == 'flyingchair':
         data_set = dataset.multidataset(cmd.type)
@@ -180,12 +187,12 @@ if __name__ == '__main__':
         raise ValueError('the dataset do not exist')
     print '??'
     if cmd.iterator == 'caffeiter':
-        data = dataiter.caffe_iterator(ctx, data_set, batchsize, label_shape, input_shape,
-            n_thread=cmd.thread, use_rnn=use_rnn, data_type=cmd.type)
+        data = dataloader.caffe_iterator(ctx, data_set, batchsize, label_shape, input_shape,
+                                         n_thread=cmd.thread, use_rnn=use_rnn, data_type=cmd.type, is_bilinear=cmd.is_bilinear)
 
     elif cmd.iterator == 'record':
         records = util.get_imageRecord(dataset.SythesisData(cmd.type, ['flyingthing3d']), batchsize[0], cmd.thread)
-        data = dataiter.multi_imageRecord(
+        data = dataloader.multi_imageRecord(
             records=records,
             data_type=cmd.type,
             batch_shape=batchsize,
@@ -194,21 +201,21 @@ if __name__ == '__main__':
             use_rnn=use_rnn)
 
     elif cmd.iterator == 'pythoniter':
-        data = dataiter.Dataiter_training(
+        data = dataloader.Dataiter_training(
             dataset=data_set,
             batch_shape=batchsize,
             label_shape=label_shape,
             augment_ratio=0.0,
             n_thread=cmd.thread,
             be_shuffle = True,
-            is_bilinear = True,
+            is_bilinear = cmd.is_bilinear,
             use_rnn=use_rnn,
             num_hidden=num_hidden)
 
     eval_data = dataset.KittiDataset(cmd.type, '2012')
     # eval_data.dirs = eval_data.dirs[160:]
     eval_data.dirs.extend(eval_data.dirs)
-    eval_dataiter = dataiter.Dataiter_training(
+    eval_dataiter = dataloader.Dataiter_training(
             dataset=eval_data,
             batch_shape=batchsize,
             label_shape=label_shape,
@@ -223,15 +230,16 @@ if __name__ == '__main__':
     data.reset()
     # data = dataiter.DummyIter(data)
     # metric
-    err = [metric.EndPointErr(cmd.which_scale)]
+    err = [metric.EndPointErr()]
     if cmd.type =='stereo':
         err.append(metric.D1all())
 
     # optimizer
     if cmd.optimizer == 'adam':
+        # optimizer = mx.optimizer.Adam(learning_rate=cmd.lr, beta1=cfg.ADAM.beta1, beta2=cfg.ADAM.beta2,
+        #                       rescale_grad=1.0, epsilon=cfg.ADAM.epsilon, wd=cfg.ADAM.weight_decay)
         optimizer = util.Adam(learning_rate=cmd.lr, beta1=cfg.ADAM.beta1, beta2=cfg.ADAM.beta2,
-                              rescale_grad=1.0 / batchsize[0], epsilon=cfg.ADAM.epsilon, wd=cfg.ADAM.weight_decay,
-                              clip_gradient=1.0)
+                              rescale_grad=1.0, epsilon=cfg.ADAM.epsilon, wd=cfg.ADAM.weight_decay)
     else:
         optimizer = mx.optimizer.SGD(learning_rate=cmd.lr, momentum=0.90, wd=cfg.ADAM.weight_decay,
                                      rescale_grad=1.0 / batchsize[0],clip_gradient=1.0)
@@ -240,7 +248,6 @@ if __name__ == '__main__':
         optimizer.set_lr_mult(lr_mult)
     init = mx.initializer.Xavier(rnd_type='gaussian', factor_type='in',
                                  magnitude=cfg.MODEL.weight_init_scale)
-    # init = mx.initializer.Orthogonal(scale=0.1, rand_type='uniform')
     # train
     mod = mx.module.Module(symbol=net,
                            data_names=[item[0] for item in data.provide_data],
@@ -257,6 +264,6 @@ if __name__ == '__main__':
             initializer= init,
             arg_params=args,
             aux_params=auxs,
-            begin_epoch=cmd.con,
+            begin_epoch=cmd.epoch,
             num_epoch=cfg.MODEL.epoch_num,
             allow_missing=True)

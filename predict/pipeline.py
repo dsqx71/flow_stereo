@@ -1,14 +1,11 @@
-import mxnet as mx
-import ConfigParser
-import os
-from PIL import Image
-import numpy as np
-import cv2
-import time
 import math
-from utils.util import outlier_sum
-import dataset
-import matplotlib.pyplot as plt
+import os
+
+import ConfigParser
+import cv2
+import mxnet as mx
+import numpy as np
+from PIL import Image
 
 class Pipeline:
 
@@ -25,8 +22,9 @@ class Pipeline:
         self.model_prefix = config.get('model', 'model_prefix')
         self.need_preprocess = config.getboolean('model', 'need_preprocess')
         self.original_shape = [config.getint('model','img_height'), config.getint('model', 'img_width')]
-        self.width = int(math.floor(self.original_shape[1] * 1.0 / 64) * 64 )
-        self.height = int(math.floor(self.original_shape[0] * 1.0 / 64) * 64 )
+
+        self.width = int(math.ceil(self.original_shape[1] / 64.0) * 64)
+        self.height = int(math.ceil(self.original_shape[0] / 64.0) * 64)
 
         if self.model_type not in ['stereo', 'flow']:
             raise ValueError('model prefix must be "stereo" or "flow"')
@@ -37,7 +35,7 @@ class Pipeline:
 
     def load_model(self,model_path):
 
-        net, arg_params, aux_params = mx.model.load_checkpoint(model_path,0)
+        net, arg_params, aux_params = mx.model.load_checkpoint(model_path, 0)
         self.arg_params = arg_params
         self.aux_params = aux_params
         new_arg_params = {}
@@ -62,20 +60,26 @@ class Pipeline:
 
         img1 = img1 * 0.00392156862745098
         img2 = img2 * 0.00392156862745098
-        img1 = img1 - np.array([ 0.34641169 , 0.36324487,0.3527042 ])
-        img2 = img2 - np.array([ 0.34641169 , 0.36324487,0.3527042 ])
 
-        img1 = cv2.resize(img1,(self.width,self.height))
-        img2 = cv2.resize(img2,(self.width,self.height))
+        # img1 = img1 - np.array([ 0.34641169 , 0.36324487,0.3527042 ])
+        # img2 = img2 - np.array([ 0.34641169 , 0.36324487,0.3527042 ])
 
-        img1 = np.expand_dims(img1.transpose(2,0,1),0)
-        img2 = np.expand_dims(img2.transpose(2,0,1),0)
+        img1 = img1 - np.array([0.35372, 0.384273, 0.405834])
+        img2 = img2 - np.array([0.353581, 0.384512, 0.406228])
+
+        # cv2.resize doesn't support anti_alias
+        img1 = cv2.resize(img1,(self.width, self.height))
+        img2 = cv2.resize(img2,(self.width, self.height))
+
+        img1 = np.expand_dims(img1.transpose(2, 0, 1), 0)
+        img2 = np.expand_dims(img2.transpose(2, 0, 1), 0)
 
         return img1,img2
 
-    def process(self,img1,img2):
-
+    def process(self, img1, img2):
+        # The original_shape can be slightly different from self.original_shape
         original_height, original_width = img1.shape[:2]
+
         if self.need_preprocess:
             img1, img2 = self.preprocess_img(img1,img2)
 
@@ -86,38 +90,9 @@ class Pipeline:
             pred = pred * (original_width/float(self.width))
 
         elif self.model_type == 'flow':
-            pred[0,:,:]  = pred[0,:,:] * (original_width/float(self.width))
-            pred[1,:,:] =  pred[1,:,:] * (original_height/float(self.height))
-            pred = pred.transpose(1,2,0)
-        pred = cv2.resize(pred,(original_width,original_height))
+            pred[0, :, :]  = pred[0, :, :] * (original_width / float(self.width))
+            pred[1, :, :] =  pred[1, :, :] * (original_height / float(self.height))
+            pred = pred.transpose(1, 2, 0)
+
+        pred = cv2.resize(pred, (original_width, original_height))
         return pred
-
-piper = Pipeline('/home/xudong/model_zoo/model.config')
-data = dataset.KittiDataset('stereo', '2015', is_train=False)
-
-tot_epe = 0
-tot_d1a = 0
-for index, item in enumerate(data.dirs):
-    img1,img2,gt,_ = data.get_data(item,'stereo')
-    dis = piper.process(img1,img2)
-    # print dis.shape
-    # mask = (gt == gt)
-    # r = np.abs(gt-dis)
-    # print r[mask].mean()
-    # tot_epe += r[mask].mean()
-    # d1all, outlier = outlier_sum(dis, gt, tau=3)
-    # print d1all
-    # tot_d1a += d1all
-
-    dis = dis*256.0
-    dis[dis<1.0] = 1.0
-    dis = dis.astype(np.uint16)
-    cv2.imwrite('/home/xudong/kitti2015_test/dispnet_drr/%06d_10.png' %  index, dis)
-    # dis2 = cv2.imread('/home/xudong/kitti2015_test/dispnet_drr/%06d_10.png' %  index, cv2.IMREAD_UNCHANGED)
-    # plt.figure()
-    # plt.imshow(dis)
-    # plt.waitforbuttonpress()
-    # # print np.abs(dis-dis2).max()
-    # plt.close()
-
-print tot_epe/200.0 , tot_d1a/200.0

@@ -1,7 +1,6 @@
 from distutils.core import setup
 from distutils.extension import Extension
 from Cython.Distutils import build_ext
-import subprocess
 import numpy
 
 ext_module = Extension(
