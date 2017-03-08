@@ -49,5 +49,5 @@ cfg.dataset.prototxt_template = '/home/xudong/dispflownet-release/models/DispNet
 cfg.dataset.pretrain_caffe = '/home/xudong/dispflownet-release/models/DispNetCorr1D/model/DispNetCorr1D_CVPR2016.caffemodel'
 cfg.dataset.solver_file = '/home/xudong/dispflownet-release/models/DispNetCorr1D/model/solver.prototxt'
 
-cfg.dataset.mean_dir = '/rawdata/check_point/mean_{}.npy'
+cfg.dataset.mean_dir = '/rawdata/check_point/'
 cfg.record_prefix = '/data01/stereo_rec/'

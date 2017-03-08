@@ -56,8 +56,8 @@ def dispnet(loss_scale, net_type='stereo', is_sparse = False):
     loss = []
 
     # siamese network, two branches share the same weights
-    weights = [mx.sym.Variable('share{}_weight'.format(i)) for i in range(1,3)]
-    bias    = [mx.sym.Variable('share{}_bias'.format(i)) for i in range(1,3)]
+    weights = [mx.sym.Variable('share{}_weight'.format(i)) for i in range(1,4)]
+    bias    = [mx.sym.Variable('share{}_bias'.format(i)) for i in range(1,4)]
     conv1_img1, conv2_img1 = conv_share(img1, 'img1', weights, bias)
     conv1_img2, conv2_img2 = conv_share(img2, 'img2', weights, bias)
 

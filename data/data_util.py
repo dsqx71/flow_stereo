@@ -1,6 +1,8 @@
-import numpy as np
 import re
 import cv2
+import numpy as np
+from random import randint
+from ..cython import util_cython
 
 def readPFM(file):
     """
@@ -12,7 +14,7 @@ def readPFM(file):
 
     Returns
     -------
-    data : ndarray
+    data : numpy array
     scale : float
     """
     file = open(file, 'rb')
@@ -53,7 +55,7 @@ def writePFM(file, image, scale=1):
     ----------
     file : str
         output dir
-    image : ndarray
+    image : numpy array
     scale : float
     """
     file = open(file, 'wb')
@@ -85,7 +87,7 @@ def readFLO(file):
 
     Returns
     -------
-    data : (Height, Width, 2) ndarray
+    data : (Height, Width, 2) numpy array
     """
 
     tag_float = 202021.25
@@ -113,7 +115,7 @@ def writeKittiSubmission(data, prefix, index, type='stereo'):
     convert format to meet kitti submission requirement
     Parameters
     ----------
-    data : ndarray
+    data : numpy array
         disparity or optical flow
     prefix : str
         output prefix
@@ -127,15 +129,76 @@ def writeKittiSubmission(data, prefix, index, type='stereo'):
         data = data.astype(np.uint16)
         cv2.imwrite(prefix+'/%06d_10.png' % index, data)
     elif type=='flow':
+        # TODO: I didn't check this part
+        #  please refer to io_flow.h in KITTI 2015 development KIT, if you have any questions
         # in BGR order
         flow = np.zeros(data.shape[:2]+(3,))
         flow[:, :, 1] = data[:, :, 1]
         flow[:, :, 2] = data[:, :, 0]
-        flow[:, :, 1:] = flow[:, :, 1:]*64.0+32768.0
+        flow[:, :, 1:] = flow[:, :, 1:] * 64.0 + 32768.0
         flow[flow<0.0] = 0.0
         flow[flow>65535] = 65535
         flow[:, :, 0] = 1
         flow = flow.astype(np.uint16)
         cv2.imwrite(prefix + '/%06d_10.png' % index, flow)
+
+
+def crop(img1, img2, label, target_height, target_width):
+    """
+    Crop img1, img2, and label simultaneously
+
+    Parameters
+    ----------
+    img1 : (height, width, 3) numpy array
+    img2 : (height, width, 3) numpy array
+    label : numpy array or None
+        disparity map or optical flow field
+    target_height : int
+    target_width : int
+
+    Returns
+    -------
+    img1_cropped, img2_cropped, label_cropped,
+    """
+    y_ori, x_ori = img1.shape[:2]
+
+    assert img1.shape == img2.shape, 'inconsistant shape'
+    assert img1.shape[:2] == label.shape[:2], 'inconsistant shape'
+    assert target_height<=y_ori and target_width<=x_ori, 'wrong target shape'
+
+    # cropping
+    x_begin = randint(0, x_ori - target_width)
+    y_begin = randint(0, y_ori - target_height)
+    if label is not None:
+        return img1[y_begin:y_begin+target_height, x_begin:x_begin+target_width], \
+               img2[y_begin:y_begin+target_height, x_begin:x_begin+target_width], \
+               label[y_begin:y_begin+target_height, x_begin:x_begin+target_width]
+    else:
+        return img1[y_begin:y_begin+target_height, x_begin:x_begin+target_width], \
+               img2[y_begin:y_begin+target_height, x_begin:x_begin+target_width], None
+
+def resize(data, data_type, interpolation_method, target_height, target_width):
+
+    if target_width == data.shape[1] and target_height == data.shape[0]:
+       return data
+
+    if data_type == 'stereo':
+        if interpolation_method == 'bilinear':
+            result =  util_cython.resize(data, target_width, target_height, 0.5)
+        else:
+            result = cv2.resize(data, (target_width, target_height), interpolation=cv2.INTER_NEAREST)
+    else:
+        result = np.zeros((target_height, target_width, 2))
+        if interpolation_method == 'bilinear':
+            result[:, :, 0] = util_cython.resize(data[:, :, 0], target_width, target_height, 0.5)
+            result[:, :, 1] = util_cython.resize(data[:, :, 1], target_width, target_height, 0.5)
+        else:
+            result[:, :, 0] = cv2.resize(data[:, :, 0], (target_width, target_height), interpolation=cv2.INTER_NEAREST)
+            result[:, :, 1] = cv2.resize(data[:, :, 1], (target_width, target_height), interpolation=cv2.INTER_NEAREST)
+
+    return result
+
+
+
 
 

@@ -128,3 +128,15 @@ def plot(img, name):
     plt.title(name)
     plt.waitforbuttonpress()
 
+def plot_pairs(img1, img2, label, type):
+
+    plot(img1, 'img1')
+    plot(img2, 'img2')
+    if type == 'stereo':
+        plot(label, 'disparity')
+    elif type == 'flow':
+        color = flow2color(label)
+        vector = flow2vector(label)
+        plot(color, 'color')
+        plot(vector, 'vector')
+    check_data(img1, img2, type, label, interval=20, number=2, y_begin=100, x_begin=100)

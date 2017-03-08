@@ -1,25 +1,12 @@
 """
 python -m flow_stereo.test.test_dataset
 
-plot patches in img1 and corresponding patches in img2. The reasonable case is that most patches
-in img1 should be similar to the counterpart in img2, except for occluded pixels.
+plot patches in image1 and corresponding patches in image2. The reasonable case is that most patches
+in image1 should be similar to the counterpart in image2, except for occluded pixels.
 """
 from ..data import dataset
 from ..utils import visualize
 from random import shuffle
-
-def plot(img1, img2, label, type):
-
-    visualize.plot(img1, 'img1')
-    visualize.plot(img2, 'img2')
-    if type == 'stereo':
-        visualize.plot(label, 'disparity')
-    elif type == 'flow':
-        color = visualize.flow2color(label)
-        vector = visualize.flow2vector(label)
-        visualize.plot(color, 'color')
-        visualize.plot(vector, 'vector')
-    visualize.check_data(img1, img2, type, label, interval=20, number=2, y_begin=100, x_begin=100)
 
 def test_SynthesisData():
     # check disparity
@@ -31,7 +18,7 @@ def test_SynthesisData():
 
     for item in data_set.dirs[:3]:
         img1, img2, label, aux = data_set.get_data(item)
-        plot(img1, img2, label, 'stereo')
+        visualize.plot_pairs(img1, img2, label, 'stereo')
 
     # check optical flow field
     data_set = dataset.SynthesisData(data_type='flow',
@@ -40,7 +27,7 @@ def test_SynthesisData():
     shuffle(data_set.dirs)
     for item in data_set.dirs[:3]:
         img1, img2, label, aux = data_set.get_data(item)
-        plot(img1, img2, label, 'flow')
+        visualize.plot_pairs(img1, img2, label, 'flow')
 
 def test_KittiData():
     # check disparity
@@ -49,14 +36,14 @@ def test_KittiData():
     assert len(data_set.dirs) == 200, 'wrong number'
     for item in data_set.dirs[:3]:
         img1, img2, label, aux = data_set.get_data(item)
-        plot(img1, img2, label, 'stereo')
+        visualize.plot_pairs(img1, img2, label, 'stereo')
 
     # check flow
     data_set = dataset.KittiDataset(data_type = 'flow', which_year = '2012', is_train=True)
     shuffle(data_set.dirs)
     for item in data_set.dirs[:3]:
         img1, img2, label, aux = data_set.get_data(item)
-        plot(img1, img2, label, 'flow')
+        visualize.plot_pairs(img1, img2, label, 'flow')
 
 def test_FlyingChairData():
     # The dataset only has optical flow data
@@ -65,7 +52,7 @@ def test_FlyingChairData():
     assert len(data_set.dirs) ==  22872, 'wrong number'
     for item in data_set.dirs[:3]:
         img1, img2, label, aux = data_set.get_data(item)
-        plot(img1, img2, label, 'flow')
+        visualize.plot_pairs(img1, img2, label, 'flow')
 
 def test_TuSimpleData():
     # The dataset only has stereo data
@@ -73,7 +60,7 @@ def test_TuSimpleData():
     shuffle(data_set.dirs)
     for item in data_set.dirs[:3]:
         img1, img2, label, aux = data_set.get_data(item)
-        plot(img1, img2, label, 'stereo')
+        visualize.plot_pairs(img1, img2, label, 'stereo')
 
 def test_MultiDataSet():
 
@@ -88,11 +75,9 @@ def test_MultiDataSet():
     shuffle(data_set.dirs)
     for item in data_set.dirs[:3]:
         img1, img2, label, aux = data_set.get_data(item)
-        plot(img1, img2, label, 'flow')
+        visualize.plot_pairs(img1, img2, label, 'flow')
 
 def main():
-    print ('''Please make sure that most patches in img1 should be similar to the counterpart in img2,
-    except for occluded pixels.''')
     test_MultiDataSet()
     test_TuSimpleData()
     test_FlyingChairData()

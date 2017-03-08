@@ -9,6 +9,9 @@ class DataSet(object):
     """The base class of a dataset. The formats and organizations of datasets are often different from each other.
     The design purpose of this class is to decouple DataLoaders from specific datasets.
 
+    Note:
+      images are in BGR order
+
     It includes:
     - 'shapes': method, return shapes of dataset
     - 'get_data': method, read data, given by data directories
@@ -384,7 +387,7 @@ class KittiDataset(DataSet):
         [2]Development Kit: http://kitti.is.tue.mpg.de/kitti/devkit_scene_flow.zip
         [3]Andreas Geiger, Automatic Camera and Range Sensor Calibration using a single Shot
 
-    Reminder:
+    Notes:
         - KITTI data have different shapes, probably because they were rectified by different calibration matrixes.
         - The ground truth of the dataset is sparse.
     """
@@ -518,9 +521,9 @@ class TusimpleDataset(DataSet):
     prefix : str
         prefix of data directory
 
-    Reminder:
+    Notes:
       - The ground truth disparity map in this dataset is very sparse, therefore you should consider using neareast
-        neighbor instead of bilinear sampling, when downsampling disparity map.
+        neighbor instead of bilinear sampling, when interpolating.
     """
     def __init__(self,num_data,prefix=cfg.dataset.tusimple_stereo):
 
