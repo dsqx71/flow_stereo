@@ -25,7 +25,7 @@ def clip(data, low, high):
 
 class augmentation(object):
     """
-    Perform data augmentation.
+    Data augmentation. The design purpose of this class is to decouple augmentation from dataloaders
 
     Parameters
     ---------
@@ -306,6 +306,7 @@ class augmentation(object):
 
     def __call__(self, img1, img2, label, discount_coeff):
         """
+        Perform data augmentation
 
         Parameters
         ----------

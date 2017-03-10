@@ -1,11 +1,9 @@
 """
-python -m flow_stereo.test.test_preprocessing
-
 - After preprocessing, most patches in image1 should still seem similar to the corresponding patches in image2.
 - current python-based implementation of augmentation is very slow, it takes about 10ms to read and preprocessing data
 """
 from ..data import dataset, data_util, augmentation
-from ..utils import visualize
+from ..others import visualize
 from random import shuffle
 
 import profile
@@ -26,7 +24,6 @@ def test_crop():
         visualize.plot_pairs(img1_cropped, img2_cropped, label_cropped, type='stereo')
 
 def test_augmentation():
-    # TODO: double check rotation and mirror
     data_set = dataset.KittiDataset(data_type='flow', which_year='2015', is_train=True)
 
     augment_pipeline = augmentation.augmentation(max_num_tries=50,
@@ -57,6 +54,6 @@ def test_augmentation():
 
 if __name__ == '__main__':
 
-    # test_crop()
+    test_crop()
     test_augmentation()
     # profile.run("test_augmentation()")

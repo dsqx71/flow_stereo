@@ -5,7 +5,7 @@ plot patches in image1 and corresponding patches in image2. The reasonable case 
 in image1 should be similar to the counterpart in image2, except for occluded pixels.
 """
 from ..data import dataset
-from ..utils import visualize
+from ..others import visualize
 from random import shuffle
 
 def test_SynthesisData():

@@ -1,6 +1,5 @@
 import math
 import os
-
 import ConfigParser
 import cv2
 import mxnet as mx
@@ -8,7 +7,25 @@ import numpy as np
 from PIL import Image
 
 class Pipeline:
+    """
+    Pipeline for prediction
 
+    Parameters
+    ----------------
+    config_path: str,
+        directory of model config
+
+    Examples
+    ----------------
+    # init pipeline
+    piper = Pipeline(config_path = '/home/xudong/model_zoo/model.config')
+    data = KittiDataset('stereo', '2015', is_train=False)
+
+    # prediction
+    for item in data.dirs:
+        img1, img2, label, aux = data.get_data(item)
+        dis = piper.process(img1, img2)
+    """
     def __init__(self, config_path):
 
         config = ConfigParser.ConfigParser()
@@ -60,9 +77,6 @@ class Pipeline:
 
         img1 = img1 * 0.00392156862745098
         img2 = img2 * 0.00392156862745098
-
-        # img1 = img1 - np.array([ 0.34641169 , 0.36324487,0.3527042 ])
-        # img2 = img2 - np.array([ 0.34641169 , 0.36324487,0.3527042 ])
 
         img1 = img1 - np.array([0.35372, 0.384273, 0.405834])
         img2 = img2 - np.array([0.353581, 0.384512, 0.406228])

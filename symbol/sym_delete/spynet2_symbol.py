@@ -1,6 +1,6 @@
 import mxnet as mx
 
-from config.general_config import cfg
+from data.config import cfg
 from symbol.dispnet_symbol import get_loss
 from symbol.sym_delete.res_unit import residual_unit
 

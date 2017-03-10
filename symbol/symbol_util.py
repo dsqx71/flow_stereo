@@ -3,10 +3,12 @@ import numpy as np
 
 class SparseRegressionLoss(mx.operator.CustomOp):
     """
-        SparseRegressionLoss will only calculate gradients where the values of label are not NaN
+        SparseRegressionLoss will ignore labels with values of NaN
     """
     def __init__(self,loss_scale, is_l1):
-
+        # due to mxnet serialization problem
+        loss_scale = float(loss_scale)
+        is_l1 = bool(is_l1)
         self.loss_scale = loss_scale
         self.is_l1 = is_l1
 
@@ -20,9 +22,10 @@ class SparseRegressionLoss(mx.operator.CustomOp):
 
         label = in_data[1].asnumpy()
         y = out_data[0].asnumpy()
-        # find NaN
+        # find invalid labels
         mask_nan = (label != label)
-        normalize_coeff = (~mask_nan).sum()
+        # total number of valid points
+        normalize_coeff = (~mask_nan[:, 0, :, :]).sum()
         if self.is_l1:
             tmp = np.sign(y - label) * self.loss_scale / float(normalize_coeff)
         else:
@@ -59,7 +62,7 @@ class SparseRegressionLossProp(mx.operator.CustomOpProp):
 
 def get_loss(data, label, loss_scale, name, get_input=False, is_sparse = False, type='stereo'):
 
-    # disparity should be positive
+    # values in disparity map should be positive
     if type == 'stereo':
         data = mx.sym.Activation(data=data, act_type='relu',name=name+'relu')
 

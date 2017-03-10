@@ -178,7 +178,23 @@ def crop(img1, img2, label, target_height, target_width):
                img2[y_begin:y_begin+target_height, x_begin:x_begin+target_width], None
 
 def resize(data, data_type, interpolation_method, target_height, target_width):
+    """
+    Resize disparity map or optical flow field
 
+    Parameters
+    ----------
+    data: numpy.ndarray, the shape of data depends on data_type
+    data_type: str,
+        'stereo' or 'flow'
+    interpolation_method: str
+        'bilinear' or 'nearest', note that, bilinear interpolation we implemented here is different from cv2.resize
+    target_height: int
+    target_width: int
+
+    Returns
+    -------
+    result: numpy.ndarray
+    """
     if target_width == data.shape[1] and target_height == data.shape[0]:
        return data
 
@@ -195,7 +211,6 @@ def resize(data, data_type, interpolation_method, target_height, target_width):
         else:
             result[:, :, 0] = cv2.resize(data[:, :, 0], (target_width, target_height), interpolation=cv2.INTER_NEAREST)
             result[:, :, 1] = cv2.resize(data[:, :, 1], (target_width, target_height), interpolation=cv2.INTER_NEAREST)
-
     return result
 
 

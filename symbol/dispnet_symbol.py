@@ -51,7 +51,7 @@ def dispnet(loss_scale, net_type='stereo', is_sparse = False):
         output_dim = 2
 
     # six loss functions with different output sizes
-    labels = {'loss{}'.format(i) :  mx.sym.Variable(net_type + '_label{}'.format(i)) for i in range(1, 7)}
+    labels = {'loss{}'.format(i) :  mx.sym.Variable('loss{}_label'.format(i)) for i in range(1, 7)}
     prediction = {}
     loss = []
 
@@ -168,7 +168,7 @@ def dispnet(loss_scale, net_type='stereo', is_sparse = False):
     # ignore the loss functions with loss scale of zero
     for key in loss_scale:
         if loss_scale[key] > 0.0:
-            loss.append(get_loss(prediction[key], labels[key], loss_scale[key], name=key,
+            loss.append(get_loss(-prediction[key], labels[key], loss_scale[key], name=key,
                                  get_input=False, is_sparse = is_sparse, type=net_type))
     net = mx.sym.Group(loss)
     return net

@@ -1,7 +1,7 @@
-from ..data import dataloaders
+from ..data import dataloader
 from ..data import augmentation, dataset
 from ..symbol import dispnet_symbol
-from ..utils import visualize
+from ..others import visualize
 
 def test_numpyloader():
     batchsize = (2, 3, 320, 768)
@@ -28,15 +28,15 @@ def test_numpyloader():
 
     data_set = dataset.KittiDataset(data_type='stereo', which_year='2015', is_train=True)
     label_shape = [('loss1_output', (2, 2, 160, 320))]
-    dataiter = dataloaders.numpyloader(data_set,
-                                       augment_pipeline,
-                                       batchsize,
-                                       label_shape,
-                                       experiment_name='2017_3_7',
-                                       n_thread=2,
-                                       half_life=1000000,
-                                       initial_coeff=0.8,
-                                       final_coeff=1.0)
+    dataiter = dataloader.numpyloader(data_set,
+                                      augment_pipeline,
+                                      batchsize,
+                                      label_shape,
+                                      experiment_name='2017_3_7',
+                                      n_thread=2,
+                                      half_life=1000000,
+                                      initial_coeff=0.8,
+                                      final_coeff=1.0)
     dataiter.reset()
 
     for batch in dataiter:

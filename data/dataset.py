@@ -1,9 +1,11 @@
 import glob
+
 import cv2
 import numpy as np
 
+from .config import cfg
 from . import data_util
-from ..config.general_config import cfg
+
 
 class DataSet(object):
     """The base class of a dataset. The formats and organizations of datasets are often different from each other.
