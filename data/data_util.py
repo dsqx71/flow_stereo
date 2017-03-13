@@ -199,18 +199,19 @@ def resize(data, data_type, interpolation_method, target_height, target_width):
        return data
 
     if data_type == 'stereo':
+        # disparity map
         if interpolation_method == 'bilinear':
             result =  util_cython.resize(data, target_width, target_height, 0.5)
         else:
             result = cv2.resize(data, (target_width, target_height), interpolation=cv2.INTER_NEAREST)
     else:
+        # optical flow field
         result = np.zeros((target_height, target_width, 2))
         if interpolation_method == 'bilinear':
             result[:, :, 0] = util_cython.resize(data[:, :, 0], target_width, target_height, 0.5)
             result[:, :, 1] = util_cython.resize(data[:, :, 1], target_width, target_height, 0.5)
         else:
-            result[:, :, 0] = cv2.resize(data[:, :, 0], (target_width, target_height), interpolation=cv2.INTER_NEAREST)
-            result[:, :, 1] = cv2.resize(data[:, :, 1], (target_width, target_height), interpolation=cv2.INTER_NEAREST)
+            result = cv2.resize(data, (target_width, target_height), interpolation=cv2.INTER_NEAREST)
     return result
 
 

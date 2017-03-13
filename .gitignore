@@ -14,3 +14,8 @@
 ### MXNet params
 *.params
 *.json
+
+### C++ and Cuda extension
+*.d
+*.o
+

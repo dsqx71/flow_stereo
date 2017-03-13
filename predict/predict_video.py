@@ -27,10 +27,8 @@ if __name__ == '__main__':
     cv2.namedWindow('frame1', cv2.WINDOW_AUTOSIZE)
 
     # prediction
-    success = True
+    success, img1 = video.read()
     while success:
-        begin = time.time()
-        success, img1 = video.read()
         success, img2 = video.read()
         if ~success:
             break
@@ -42,7 +40,7 @@ if __name__ == '__main__':
         vector = visualize.flow2vector(ret, interval=20)
         cv2.imshow('vector', vector)
         cv2.waitKey(1)
-        print ('{} fps'.format(1.0/ (time.time() - begin)))
+        img1 = img2
 
     # release
     video.release()
