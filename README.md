@@ -1,14 +1,20 @@
-# End-to-End deep learning models for disparity map and optical flow
-
-## Installation Guide:
-1. Install dependencies: numpy, opencv2, MXNet. Install MXNet with additional operators.
-If you know Makefile, change EXTRA_OPERATORS in config.mk to include the flow_stereo/operator folder.
-if the MXNet version which you used doesn't  correlation1D
-2. run ```make all```, to build Cython extension
-3. edit all comp
-You eict
-
-## Usage:
+## Stereo and Optical flow
 
 
-## Notes:
+#### Installation Guide
+- Install dependencies: numpy, opencv2, MXNet. 
+- If the MXNet version which you used doesn't support correlation1D operator, you should install MXNet with additional operatior -- edit ```EXTRA_OPERATORS``` in ```config.mk``` to include the ```flow_stereo/operator``` folder.
+- Run ```make all``` to build extension
+- Edit all fields in data/config.py, otherwise it will not work.
+
+#### Project Organization
+- ```data.dataloader```: Data Loader
+- ```data.dataset```: Dataset class
+- ```data.augmentation```: Pipeline for augmentation
+- ```predict.pipeline```: Pipeline for prediction
+- ```docs```: Dataset documents
+- ```symbol```: Symbols and customed operators
+- ```others```: visualization, metric, and other utilities
+
+#### Usage
+- For training, run ```python -m flow_stereo.train exp_name EXPERIMENT_NAME --gpus GPU_INDEX --epoch RESUMING_EPOCH```
