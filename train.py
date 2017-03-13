@@ -30,5 +30,3 @@ if __name__ == '__main__':
 
     # perform experiment
     eval(args.exp_name)(args.epoch, ctx)
-
-
