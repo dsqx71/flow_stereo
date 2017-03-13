@@ -16,7 +16,7 @@ def test_SynthesisData():
     shuffle(data_set.dirs)
     assert len(data_set.dirs) > 70000, 'wrong number'
 
-    for item in data_set.dirs[:3]:
+    for item in data_set.dirs[:1]:
         img1, img2, label, aux = data_set.get_data(item)
         visualize.plot_pairs(img1, img2, label, 'stereo')
 
@@ -25,7 +25,7 @@ def test_SynthesisData():
                                      scene_list=['flyingthing3d', 'Driving', 'Monkaa'],
                                      rendering_level=['cleanpass', 'finalpass'])
     shuffle(data_set.dirs)
-    for item in data_set.dirs[:3]:
+    for item in data_set.dirs[:1]:
         img1, img2, label, aux = data_set.get_data(item)
         visualize.plot_pairs(img1, img2, label, 'flow')
 
@@ -34,14 +34,14 @@ def test_KittiData():
     data_set = dataset.KittiDataset(data_type = 'stereo', which_year = '2015', is_train=True)
     shuffle(data_set.dirs)
     assert len(data_set.dirs) == 200, 'wrong number'
-    for item in data_set.dirs[:3]:
+    for item in data_set.dirs[:1]:
         img1, img2, label, aux = data_set.get_data(item)
         visualize.plot_pairs(img1, img2, label, 'stereo')
 
     # check flow
     data_set = dataset.KittiDataset(data_type = 'flow', which_year = '2012', is_train=True)
     shuffle(data_set.dirs)
-    for item in data_set.dirs[:3]:
+    for item in data_set.dirs[:1]:
         img1, img2, label, aux = data_set.get_data(item)
         visualize.plot_pairs(img1, img2, label, 'flow')
 
@@ -50,7 +50,7 @@ def test_FlyingChairData():
     data_set = dataset.FlyingChairsDataset()
     shuffle(data_set.dirs)
     assert len(data_set.dirs) ==  22872, 'wrong number'
-    for item in data_set.dirs[:3]:
+    for item in data_set.dirs[:1]:
         img1, img2, label, aux = data_set.get_data(item)
         visualize.plot_pairs(img1, img2, label, 'flow')
 
@@ -58,7 +58,7 @@ def test_TuSimpleData():
     # The dataset only has stereo data
     data_set = dataset.TusimpleDataset(4000)
     shuffle(data_set.dirs)
-    for item in data_set.dirs[:3]:
+    for item in data_set.dirs[:1]:
         img1, img2, label, aux = data_set.get_data(item)
         visualize.plot_pairs(img1, img2, label, 'stereo')
 
@@ -73,16 +73,14 @@ def test_MultiDataSet():
                     ]
     data_set.register(dataset_list)
     shuffle(data_set.dirs)
-    for item in data_set.dirs[:3]:
+    for item in data_set.dirs[:1]:
         img1, img2, label, aux = data_set.get_data(item)
         visualize.plot_pairs(img1, img2, label, 'flow')
 
-def main():
+
+if __name__ == '__main__':
     test_MultiDataSet()
     test_TuSimpleData()
     test_FlyingChairData()
     test_KittiData()
     test_SynthesisData()
-
-if __name__ == '__main__':
-    main()

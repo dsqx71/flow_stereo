@@ -1,10 +1,7 @@
+import logging
 import numpy as np
 import mxnet.ndarray as nd
-import os
-import mxnet as mx
-import pandas as pd
-import subprocess
-from ..data.config import cfg
+from mxnet.lr_scheduler import LRScheduler
 
 def load_checkpoint(prefix, epoch):
     """
@@ -70,4 +67,3 @@ def get_idx2name(net):
     for i,name in enumerate(param_name):
         idx2name[i] = name
     return idx2name
-

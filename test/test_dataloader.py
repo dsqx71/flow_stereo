@@ -44,7 +44,7 @@ def test_numpyloader():
         img2 = batch.data[1].asnumpy()[0].transpose(1,2,0)
         label= batch.label[0].asnumpy()[0,0]
         print (label.shape)
-        visualize.plot_pairs(img1, img2, label, 'stereo')
+        visualize.plot_pairs(img1, img2, label, 'stereo', plot_patch=False)
 
 if __name__ == '__main__':
     test_numpyloader()

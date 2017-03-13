@@ -326,7 +326,9 @@ class augmentation(object):
 
         return img1, img2, label
 
-    # TODO: it does not support eigenspace tranformation
+    # TODO: Eigenspace tranformation
+    # TODO: render rain / frog / sun light
+    # TODO: perform spatial transform on two images individually
 
 
 

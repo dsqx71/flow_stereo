@@ -3,17 +3,16 @@ import numpy as np
 
 class SparseRegressionLoss(mx.operator.CustomOp):
     """
-        SparseRegressionLoss will ignore labels with values of NaN
+        SparseRegressionLoss ignore labels with values of NaN
     """
-    def __init__(self,loss_scale, is_l1):
-        # due to mxnet serialization problem
+    def __init__(self, loss_scale, is_l1):
+        # watch out mxnet serialization problem
         loss_scale = float(loss_scale)
         is_l1 = bool(is_l1)
         self.loss_scale = loss_scale
         self.is_l1 = is_l1
 
     def forward(self, is_train, req, in_data, out_data, aux):
-
         x = in_data[0]
         y = out_data[0]
         self.assign(y, req[0], x)
@@ -27,8 +26,10 @@ class SparseRegressionLoss(mx.operator.CustomOp):
         # total number of valid points
         normalize_coeff = (~mask_nan[:, 0, :, :]).sum()
         if self.is_l1:
+            # L1 loss
             tmp = np.sign(y - label) * self.loss_scale / float(normalize_coeff)
         else:
+            # L2 loss
             tmp = (y - label) * self.loss_scale / float(normalize_coeff)
         # ignore NaN
         tmp[mask_nan] = 0
@@ -49,7 +50,6 @@ class SparseRegressionLossProp(mx.operator.CustomOpProp):
         return ['output']
 
     def infer_shape(self, in_shape):
-
         data_shape = in_shape[0]
         label_shape = in_shape[0]
         output_shape = in_shape[0]
@@ -61,25 +61,13 @@ class SparseRegressionLossProp(mx.operator.CustomOpProp):
         return SparseRegressionLoss(self.loss_scale, self.is_l1)
 
 def get_loss(data, label, loss_scale, name, get_input=False, is_sparse = False, type='stereo'):
-
     # values in disparity map should be positive
     if type == 'stereo':
         data = mx.sym.Activation(data=data, act_type='relu',name=name+'relu')
-
+    # loss
     if  is_sparse:
         loss =mx.symbol.Custom(data=data, label=label, name=name, loss_scale= loss_scale, is_l1=True,
             op_type='SparseRegressionLoss')
-        # loss = mx.symbol.CaffeLoss(data=data, label=label,
-        #                            name = 'loss_caffe',
-        #                            prototxt = '''
-        #                            layer {
-        #                               type: "L1Loss"
-        #                                loss_weight: %f
-        #                                l1_loss_param {
-        #                                l2_per_location: false
-        #                                normalize_by_num_entries: true
-        #                               }
-        #                            }''' % loss_scale)
     else:
         loss = mx.sym.MAERegressionOutput(data=data, label=label, name=name, grad_scale=loss_scale)
 

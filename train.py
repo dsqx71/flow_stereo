@@ -21,7 +21,7 @@ if __name__ == '__main__':
     # log file
     log_file = os.path.join(config.cfg.model.log_prefix, args.exp_name)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s  %(message)s', filename=log_file, filemode='a')
-
+    
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s  %(message)s')

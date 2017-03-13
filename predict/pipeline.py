@@ -13,15 +13,13 @@ class Pipeline:
     Parameters
     ----------------
     config_path: str,
-        directory of model config
+        directory of deploy config
 
     Examples
     ----------------
-    # init pipeline
     piper = Pipeline(config_path = '/home/xudong/model_zoo/model.config')
     data = KittiDataset('stereo', '2015', is_train=False)
 
-    # prediction
     for item in data.dirs:
         img1, img2, label, aux = data.get_data(item)
         dis = piper.process(img1, img2)
@@ -44,7 +42,7 @@ class Pipeline:
         self.height = int(math.ceil(self.original_shape[0] / 64.0) * 64)
 
         if self.model_type not in ['stereo', 'flow']:
-            raise ValueError('model prefix must be "stereo" or "flow"')
+            raise ValueError('Allowable values of model prefix are "stereo" and "flow"')
 
         self.ctx = mx.gpu(int(config.get('model', 'ctx')))
         model_path = os.path.join(base_folder, self.model_prefix)
@@ -58,7 +56,7 @@ class Pipeline:
         new_arg_params = {}
 
         for k, v in arg_params.items():
-            if k != 'img1' and k != 'img2' and not k.startswith('stereo'):
+            if k != 'img1' and k != 'img2' and 'label' not in k:
                 new_arg_params[k] = v
 
         model = mx.model.FeedForward(ctx=self.ctx,
@@ -68,7 +66,7 @@ class Pipeline:
                                      numpy_batch_size=1)
         return model
 
-    def preprocess_img(self, img1,img2):
+    def preprocess_img(self, img1, img2):
 
         if isinstance(img1, Image.Image):
             img1 = np.asarray(img1)
@@ -81,7 +79,6 @@ class Pipeline:
         img1 = img1 - np.array([0.35372, 0.384273, 0.405834])
         img2 = img2 - np.array([0.353581, 0.384512, 0.406228])
 
-        # cv2.resize doesn't support anti_alias
         img1 = cv2.resize(img1,(self.width, self.height))
         img2 = cv2.resize(img2,(self.width, self.height))
 

@@ -11,7 +11,7 @@ cfg.caffe = edict()
 #You must download datasets and correctly set the directory prefix.
 cfg.dataset.kitti_prefix = '/home/xudong/flow_stereo/data/kitti/'
 cfg.dataset.flyingchairs_prefix = '/home/xudong/flow_stereo/data/flyingchair/'
-cfg.dataset.SythesisData_prefix = '/home/xudong/flow_stereo/data/synthesis/'
+cfg.dataset.SythesisData_prefix = '/data01/'#'/home/xudong/flow_stereo/data/synthesis/'
 cfg.dataset.tusimple_stereo = '/data01/tusimple_stereo_data/'
 # mean file
 cfg.dataset.mean_dir = '/rawdata/checkpoint_flowstereo/mean/'
