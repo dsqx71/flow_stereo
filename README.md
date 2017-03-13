@@ -13,8 +13,12 @@
 - ```data.augmentation```: Pipeline for augmentation
 - ```predict.pipeline```: Pipeline for prediction
 - ```docs```: Dataset documents
-- ```symbol```: Symbols and customed operators
+- ```symbol```: Network symbols and customed operators
 - ```others```: visualization, metric, and other utilities
 
-#### Usage
-- For training, run ```python -m flow_stereo.train exp_name EXPERIMENT_NAME --gpus GPU_INDEX --epoch RESUMING_EPOCH```
+####Training
+Run ```python -m flow_stereo.train exp_name EXPERIMENT_NAME --gpus GPU_INDEX --epoch RESUMING_EPOCH```
+
+
+####Testing Example
+Please refer to ```predict/predict_kitti.py``` and ```predict/predict_video.py```
