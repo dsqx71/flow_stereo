@@ -26,6 +26,6 @@ avg_error = calibrator.check_calibration(calibration)
 
 #save camera matrix
 calibration.export('/rawdata/stereo/calibration')
-print "calibration err %f" % avg_error
+print ("calibration err %f" % avg_error)
 
 

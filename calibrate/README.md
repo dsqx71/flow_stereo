@@ -10,8 +10,7 @@ pip install stereovision --user
 - Rectification: stereo_rectify.py
 - If you want to know detail,please read [the blog](https://erget.wordpress.com/2014/02/28/calibrating-a-stereo-pair-with-python/)
 
-##Data 
----
+##Data
 
 - chessboard image：/rawdata/stereo/test7/calibrate_img/
 - camera matrix （768x1024 version）： /rawdata/stereo/calibration/
