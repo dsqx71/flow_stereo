@@ -19,21 +19,24 @@ class SparseRegressionLoss(mx.operator.CustomOp):
 
     def backward(self, req, out_grad, in_data, out_data, in_grad, aux):
 
-        label = in_data[1].asnumpy()
-        y = out_data[0].asnumpy()
-        # find invalid labels
-        mask_nan = (label != label)
-        # total number of valid points
-        normalize_coeff = (~mask_nan[:, 0, :, :]).sum()
+        label = in_data[1]
+        y = out_data[0]
+        # find valid labels
+        mask = (label == label)
+        # total number of valid points:
+        normalize_coeff = mx.nd.sum(mask).asnumpy()[0] / y.shape[1]
         if self.is_l1:
             # L1 loss
-            tmp = np.sign(y - label) * self.loss_scale / float(normalize_coeff)
+            # mx.nd.sign will return 0, if input is nan
+            tmp = mx.nd.sign(y - label) * self.loss_scale / float(normalize_coeff)
         else:
             # L2 loss
             tmp = (y - label) * self.loss_scale / float(normalize_coeff)
-        # ignore NaN
-        tmp[mask_nan] = 0
-        self.assign(in_grad[0], req[0], mx.nd.array(tmp))
+            # ignore nan
+            zeros = mx.nd.zeros(y.shape)
+            tmp = mx.nd.where(mask, tmp, zeros)
+
+        self.assign(in_grad[0], req[0], tmp)
 
 @mx.operator.register("SparseRegressionLoss")
 class SparseRegressionLossProp(mx.operator.CustomOpProp):

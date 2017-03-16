@@ -30,7 +30,6 @@ class EndPointErr(mx.metric.EvalMetric):
 class D1all(mx.metric.EvalMetric):
     """
        outlier : abs(y-label) > 3  &&  abs(y-label) / label > 0.05
-       D1: Percentage of stereo disparity outliers in first frame
     """
 
     def __init__(self):
@@ -45,6 +44,6 @@ class D1all(mx.metric.EvalMetric):
         gt_all = gt.asnumpy()
 
         for i in range(gt_all.shape[0]):
-            tmp, outlier = util.outlier_sum(pred_all[i][0], gt_all[i][0], tau)
+            tmp = util.outlier_sum(pred_all[i], gt_all[i], tau)
             self.sum_metric += tmp
         self.num_inst += gt_all.shape[0]
