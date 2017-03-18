@@ -92,7 +92,7 @@ class numpyloader(mx.io.DataIter):
         self.n_thread = n_thread
         self.worker_proc = None
         self.stop_flag = mp.Value('b', False)
-        self.result_queue = mp.Queue(maxsize=self.batch_shape[0]*20)
+        self.result_queue = mp.Queue(maxsize=self.batch_shape[0]*30)
         self.data_queue = mp.Queue()
 
         # load mean and num of iterations
@@ -139,6 +139,7 @@ class numpyloader(mx.io.DataIter):
         discount_coeff = self.initial_coeff + \
                          (self.final_coeff - self.initial_coeff) * \
                          (2.0 / (1.0 + exp(-1.0*self.num_iteration/self.half_life)) - 1.0)
+        logging.info("discount coeff: {}".format(discount_coeff))
         self.worker_proc = [mp.Process(target=numpyloader._worker,
                                        args=[self.data_queue,
                                              self.result_queue,
