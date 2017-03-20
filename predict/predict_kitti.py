@@ -8,7 +8,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--deploy_config', type=str, help='directory of model config')
     parser.add_argument('--output_prefix', type=str, help='prefix of output directory')
-    parser.add_argument('--is_show', type=bool, help='whether show results', default=False)
+    parser.add_argument('--is_show', type=int, help='whether show results', default=False)
     args = parser.parse_args()
 
     # init pipeline
