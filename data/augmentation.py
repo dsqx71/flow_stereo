@@ -323,7 +323,8 @@ class augmentation(object):
         if random.uniform(0, 1) < self.augment_ratio:
             img1, img2, label = self.spatial_transform(img1, img2, label)
             img1, img2 = self.chromatic_transform(img1, img2)
-
+        else:
+            img1, img2, label = data_util.crop(img1, img2, label, self.cropped_height, self.cropped_width)
         return img1, img2, label
 
     # TODO: Eigenspace tranformation
