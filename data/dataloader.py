@@ -171,8 +171,8 @@ class numpyloader(mx.io.DataIter):
             img1, img2, label, index = get_data(item)
             label = label.astype(np.float64)
             img1, img2, label = augmentation(img1, img2, label, discount_coeff)
-            img1 *= 0.00392156862745098
-            img2 *= 0.00392156862745098
+            img1 = img1 * 0.00392156862745098
+            img2 = img2 * 0.00392156862745098
             labels = []
             for item in label_shape:
                 label_resized = resize(label, data_type, interpolation_method, item[1][2], item[1][3])
