@@ -13,6 +13,10 @@ if __name__ == '__main__':
     parser.add_argument('--exp_name', type=str, help='experiment name', choices=experiments)
     parser.add_argument('--epoch', type=int,  help='continue training')
     parser.add_argument('--gpus', type=str,  help='the gpus will be used, e.g "0,1,2,3"')
+    parser.add_argument('--lr', type=float, help='Learning rate. '
+                                                 'Notes:'
+                                                 'Please set new learning rate when resuming training, '
+                                                 'since lr_scheduler will not save num_update')
 
     # parse args
     args = parser.parse_args()
@@ -29,4 +33,4 @@ if __name__ == '__main__':
     logging.getLogger('').addHandler(console)
 
     # perform experiment
-    eval(args.exp_name)(args.epoch, ctx)
+    eval(args.exp_name)(args.epoch, ctx, args.lr)
