@@ -7,6 +7,7 @@ in image1 should be similar to the counterpart in image2, except for occluded pi
 from ..data import dataset
 from ..others import visualize
 from random import shuffle
+import time
 
 def test_SynthesisData():
     # check disparity
@@ -16,9 +17,12 @@ def test_SynthesisData():
     shuffle(data_set.dirs)
     assert len(data_set.dirs) > 70000, 'wrong number'
 
-    for item in data_set.dirs[:1]:
+    for item in data_set.dirs[:10]:
+        tic = time.time()
         img1, img2, label, aux = data_set.get_data(item)
-        visualize.plot_pairs(img1, img2, label, 'stereo')
+        print time.time() - tic
+        # visualize.plot_pairs(img1, img2, label, 'stereo')
+
 
     # check optical flow field
     data_set = dataset.SynthesisData(data_type='flow',
@@ -50,9 +54,11 @@ def test_FlyingChairData():
     data_set = dataset.FlyingChairsDataset()
     shuffle(data_set.dirs)
     assert len(data_set.dirs) ==  22872, 'wrong number'
-    for item in data_set.dirs[:1]:
+    for item in data_set.dirs[:10]:
+        tic = time.time()
         img1, img2, label, aux = data_set.get_data(item)
-        visualize.plot_pairs(img1, img2, label, 'flow')
+        print (time.time() - tic)
+        # visualize.plot_pairs(img1, img2, label, 'flow')
 
 def test_TuSimpleData():
     # The dataset only has stereo data
@@ -79,8 +85,8 @@ def test_MultiDataSet():
 
 
 if __name__ == '__main__':
-    test_MultiDataSet()
-    test_TuSimpleData()
-    test_FlyingChairData()
-    test_KittiData()
+    # test_MultiDataSet()
+    # test_TuSimpleData()
     test_SynthesisData()
+    test_FlyingChairData()
+    # test_KittiData()

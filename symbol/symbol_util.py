@@ -3,40 +3,37 @@ import numpy as np
 
 class SparseRegressionLoss(mx.operator.CustomOp):
     """
-        SparseRegressionLoss ignore labels with values of NaN
+        SparseRegressionLoss will ignore labels with values of NaN
     """
-    def __init__(self, loss_scale, is_l1):
-        # watch out mxnet serialization problem
+    def __init__(self,loss_scale, is_l1):
+        # due to mxnet serialization problem
+        super(SparseRegressionLoss, self).__init__()
         loss_scale = float(loss_scale)
         is_l1 = bool(is_l1)
         self.loss_scale = loss_scale
         self.is_l1 = is_l1
 
     def forward(self, is_train, req, in_data, out_data, aux):
+
         x = in_data[0]
         y = out_data[0]
         self.assign(y, req[0], x)
 
     def backward(self, req, out_grad, in_data, out_data, in_grad, aux):
 
-        label = in_data[1]
-        y = out_data[0]
-        # find valid labels
-        mask = (label == label)
-        # total number of valid points:
-        normalize_coeff = mx.nd.sum(mask).asnumpy()[0] / y.shape[1]
+        label = in_data[1].asnumpy()
+        y = out_data[0].asnumpy()
+        # find invalid labels
+        mask_nan = (label != label)
+        # total number of valid points
+        normalize_coeff = (~mask_nan[:, 0, :, :]).sum()
         if self.is_l1:
-            # L1 loss
-            # mx.nd.sign will return 0, if input is nan
-            tmp = mx.nd.sign(y - label) * self.loss_scale / float(normalize_coeff)
+            tmp = np.sign(y - label) * self.loss_scale / float(normalize_coeff)
         else:
-            # L2 loss
             tmp = (y - label) * self.loss_scale / float(normalize_coeff)
-            # ignore nan
-            zeros = mx.nd.zeros(y.shape)
-            tmp = mx.nd.where(mask, tmp, zeros)
-
-        self.assign(in_grad[0], req[0], tmp)
+        # ignore NaN
+        tmp[mask_nan] = 0
+        self.assign(in_grad[0], req[0], mx.nd.array(tmp))
 
 @mx.operator.register("SparseRegressionLoss")
 class SparseRegressionLossProp(mx.operator.CustomOpProp):
@@ -64,7 +61,7 @@ class SparseRegressionLossProp(mx.operator.CustomOpProp):
         return SparseRegressionLoss(self.loss_scale, self.is_l1)
 
 def get_loss(data, label, loss_scale, name, get_input=False, is_sparse = False, type='stereo'):
-    # values in disparity map should be positive
+
     if type == 'stereo':
         data = mx.sym.Activation(data=data, act_type='relu',name=name+'relu')
     # loss
@@ -75,3 +72,86 @@ def get_loss(data, label, loss_scale, name, get_input=False, is_sparse = False, 
         loss = mx.sym.MAERegressionOutput(data=data, label=label, name=name, grad_scale=loss_scale)
 
     return (loss,data) if get_input else loss
+
+
+def residual_unit(data, num_filter, stride, dim_match, name, bottle_neck=False, bn_mom=0.9, workspace=512,
+                  memonger=False, factor=0.25):
+    """Return ResNet Unit symbol for building ResNet
+    Parameters
+    ----------
+    data : str
+        Input data
+    num_filter : int
+        Number of output channels
+    bnf : int
+        Bottle neck channels factor with regard to num_filter
+    stride : tupe
+        Stride used in convolution
+    dim_match : Boolen
+        True means channel number between input and output is the same, otherwise means differ
+    name : str
+        Base name of the operators
+    workspace : int
+        Workspace used in convolution operator
+    """
+    if bottle_neck:
+        # A bit difference from origin paper
+        conv1 = mx.sym.Convolution(data=data, num_filter=int(num_filter*factor), kernel=(1, 1), stride=(1, 1), pad=(0, 0),
+                                   no_bias=False, workspace=workspace, name=name + '_conv1')
+        bn1 = mx.sym.BatchNorm(data=conv1, fix_gamma=False, momentum=bn_mom, eps=1e-5 + 1e-10, name=name + '_bn1')
+        act1 = mx.sym.Activation(data=bn1, act_type='relu', name=name + '_relu1')
+
+        conv2 = mx.sym.Convolution(data=act1, num_filter=int(num_filter*factor), kernel=(3, 3), stride=stride, pad=(1, 1),
+                                   no_bias=False, workspace=workspace, name=name + '_conv2')
+        bn2 = mx.sym.BatchNorm(data=conv2, fix_gamma=False, momentum=bn_mom, eps=1e-5 + 1e-10, name=name + '_bn2')
+        act2 = mx.sym.Activation(data=bn2, act_type='relu', name=name + '_relu2')
+
+        conv3 = mx.sym.Convolution(data=act2, num_filter=num_filter, kernel=(1, 1), stride=(1, 1),
+                                   pad=(0, 0),
+                                   no_bias=False, workspace=workspace, name=name + '_conv3')
+        bn3 = mx.sym.BatchNorm(data=conv3, fix_gamma=False, momentum=bn_mom, eps=1e-5 + 1e-10, name=name + '_bn3')
+        act3 = mx.sym.Activation(data=bn3, act_type='relu', name=name + '_relu3')
+
+        if dim_match:
+            shortcut = data
+        else:
+            shortcut = mx.sym.Convolution(data=data, num_filter=num_filter, kernel=(1, 1), stride=stride, no_bias=False,
+                                          workspace=workspace, name=name + '_sc')
+        if memonger:
+            shortcut._set_attr(mirror_stage='True')
+
+        return act3 + shortcut
+    else:
+        conv1 = mx.sym.Convolution(data=data, num_filter=num_filter, kernel=(3, 3), stride=stride, pad=(1, 1),
+                                   no_bias=False, workspace=workspace, name=name + '_conv1')
+        bn1 = mx.sym.BatchNorm(data=conv1, fix_gamma=False, momentum=bn_mom, eps=1e-5 + 1e-10, name=name + '_bn1')
+        act1 = mx.sym.Activation(data=bn1, act_type='relu', name=name + '_relu1')
+
+        conv2 = mx.sym.Convolution(data=act1, num_filter=num_filter, kernel=(3, 3), stride=(1, 1), pad=(1, 1),
+                                   no_bias=False, workspace=workspace, name=name + '_conv2')
+        bn2 = mx.sym.BatchNorm(data=conv2, fix_gamma=False, momentum=bn_mom, eps=1e-5 + 1e-10, name=name + '_bn2')
+        act2 = mx.sym.Activation(data=bn2, act_type='relu', name=name + '_relu2')
+
+        if dim_match:
+            shortcut = data
+        else:
+            shortcut = mx.sym.Convolution(data=data, num_filter=num_filter, kernel=(1, 1), stride=stride, no_bias=False,
+                                          workspace=workspace, name=name + '_sc')
+        if memonger:
+            shortcut._set_attr(mirror_stage='True')
+
+        return act2 + shortcut
+
+def conv_share(sym, name, weights, bias):
+    """
+     siamese network of Dispnet and Flownet
+    """
+    conv1 = mx.sym.Convolution(data=sym, pad=(3, 3), kernel=(7, 7), stride=(2, 2), num_filter=64,
+                               weight=weights[0], bias=bias[0], name='conv1' + name)
+    conv1 = mx.sym.LeakyReLU(data = conv1,  act_type = 'leaky', slope  = 0.1)
+
+    conv2 = mx.sym.Convolution(data = conv1, pad  = (2,2),  kernel=(5,5), stride=(2,2), num_filter=128,
+                                 weight=weights[1], bias=bias[1], name='conv2' + name)
+    conv2 = mx.sym.LeakyReLU(data = conv2, act_type = 'leaky', slope = 0.1)
+
+    return conv1, conv2

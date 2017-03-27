@@ -72,8 +72,10 @@ class Pipeline:
         img2 = img2 * 0.00392156862745098
 
         # TODO : remove the hard-code
-        img1 = img1 - np.array([0.35372, 0.384273, 0.405834])
-        img2 = img2 - np.array([0.353581, 0.384512, 0.406228])
+        # img1 = img1 - np.array([0.35372, 0.384273, 0.405834])
+        # img2 = img2 - np.array([0.353581, 0.384512, 0.406228])
+        img1 = img1 - np.array([0.383917, 0.40838907, 0.42546598])
+        img2 = img2 - np.array([0.38470935, 0.40924604, 0.42640202])
 
         img1 = cv2.resize(img1,(self.target_width, self.target_height))
         img2 = cv2.resize(img2,(self.target_width, self.target_height))
@@ -93,10 +95,11 @@ class Pipeline:
             img1, img2 = self.preprocess_img(img1, img2)
         batch = mx.io.NDArrayIter(data = {'img1':img1, 'img2':img2})
         pred = self.model.predict(batch)
+        if isinstance(pred, list):
+            pred = pred[0]
         # postprocessing
         if self.model_type == 'stereo':
-            # pred in the shape of  (1, 1, height, width)
-            pred = pred[0,0]
+            pred = pred[0][0]
             pred = pred * (original_width/float(self.target_width))
 
         elif self.model_type == 'flow':

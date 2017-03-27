@@ -5,8 +5,8 @@ from ..others import visualize
 import time
 
 def test_numpyloader():
-    batchsize = (2, 3, 320, 768)
-    loss_scale = {'loss1': 1.00, 'loss2': 0.00, 'loss3': 0.00, 'loss4':0.00, 'loss5':0.00,'loss6':0.00}
+    batchsize = (4, 3, 320, 768)
+    loss_scale = {'loss1': 1.00, 'loss2': 0.20, 'loss3': 0.20, 'loss4':0.20, 'loss5':0.00,'loss6':0.00}
     net_symbol = dispnet_symbol.dispnet(loss_scale,'stereo', False)
     shapes = net_symbol.infer_shape(img1 = batchsize, img2= batchsize)
     label_shape =  zip(net_symbol.list_outputs(), shapes[1])
@@ -28,14 +28,14 @@ def test_numpyloader():
                                                  interpolation_method='bilinear')
 
     data_set = dataset.KittiDataset(data_type='stereo', which_year='2015', is_train=True)
-    label_shape = [('loss1_output', (8, 2, 160, 320))]
+    # label_shape = [('loss1_output', (8, 2, 384, 768))]
 
     dataiter = dataloader.numpyloader(experiment_name='2017_3_7',
                                       dataset=data_set,
                                       augmentation=augment_pipeline,
                                       batch_shape=batchsize,
                                       label_shape=label_shape,
-                                      n_thread=10,
+                                      n_thread=15,
                                       half_life=200000,
                                       initial_coeff=0.5,
                                       final_coeff=1.0,

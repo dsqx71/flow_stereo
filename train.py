@@ -15,8 +15,8 @@ if __name__ == '__main__':
     parser.add_argument('--gpus', type=str,  help='the gpus will be used, e.g "0,1,2,3"')
     parser.add_argument('--lr', type=float, help='Learning rate. '
                                                  'Notes:'
-                                                 'Please set new learning rate when resuming training, '
-                                                 'since lr_scheduler will not save num_update')
+                                                 'Please set new learning rate when resuming training process, '
+                                                 'since lr_scheduler cannot save num_update.')
 
     # parse args
     args = parser.parse_args()

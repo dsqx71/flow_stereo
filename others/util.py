@@ -1,6 +1,7 @@
-import numpy as np
 import mxnet.ndarray as nd
 import cv2
+import os
+from ..data import config
 
 def load_checkpoint(prefix, epoch):
     """
@@ -78,3 +79,15 @@ def get_idx2name(net):
     for i,name in enumerate(param_name):
         idx2name[i] = name
     return idx2name
+
+def generate_deployconfig(experiment_name, data_type):
+    """
+    Gernerate deploy config for prediction pipeline
+    """
+    file_path = os.path.join(config.cfg.model.model_zoo, experiment_name+'.config')
+    with open(file_path, 'w') as f:
+        f.write('[model]\n')
+        f.write('model_type = {}\n'.format(data_type))
+        f.write('model_prefix = {}\n'.format(experiment_name))
+        f.write('ctx = 0\n')
+        f.write('need_preprocessing = 1\n')

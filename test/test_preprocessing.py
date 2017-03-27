@@ -24,23 +24,23 @@ def test_crop():
         visualize.plot_pairs(img1_cropped, img2_cropped, label_cropped, type='stereo')
 
 def test_augmentation():
-    data_set = dataset.KittiDataset(data_type='flow', which_year='2015', is_train=True)
+    data_set = dataset.KittiDataset(data_type='stereo', which_year='2015', is_train=True)
 
-    augment_pipeline = augmentation.augmentation(max_num_tries=50,
-                                                 cropped_height=320,
-                                                 cropped_width=768,
-                                                 data_type='flow',
-                                                 augment_ratio=1.0,
-                                                 noise_std=0.000001,
-                                                 mirror_rate=0.5,
-                                                 rotate_range={'method': 'uniform', 'low': -20, 'high': 20},
-                                                 translate_range={'method': 'uniform', 'low': -0.2, 'high': 0.2},
-                                                 zoom_range={'method': 'uniform', 'low': 0.8, 'high': 1.5},
-                                                 squeeze_range={'method': 'uniform', 'low': 0.75, 'high': 1.25},
-                                                 gamma_range={'method': 'uniform', 'low': 1.0, 'high': 1.0},
+    augment_pipeline = augmentation.augmentation(max_num_tries=10,
+                                                 cropped_height=384,
+                                                 cropped_width=512,
+                                                 data_type='stereo',
+                                                 augment_ratio=1.00,
+                                                 noise_std=0.03,
+                                                 mirror_rate=0.0,
+                                                 rotate_range={'method': 'uniform', 'low': 0, 'high': 0},
+                                                 translate_range={'method': 'normal', 'mean': 0.0, 'scale': 0.4},
+                                                 zoom_range={'method': 'normal', 'mean': 1.2, 'scale': 0.4},
+                                                 squeeze_range={'method': 'normal', 'mean': 1.0, 'scale': 0.3},
+                                                 gamma_range={'method': 'normal', 'mean': 1.0, 'scale': 0.001},
                                                  brightness_range={'method': 'normal', 'mean': 0.0, 'scale': 0.001},
-                                                 contrast_range={'method': 'uniform', 'low': 1.0, 'high': 1.0},
-                                                 rgb_multiply_range={'method': 'uniform', 'low': 1.0, 'high': 1.0},
+                                                 contrast_range={'method': 'normal', 'mean': 1.0, 'scale': 0.00},
+                                                 rgb_multiply_range={'method': 'normal', 'mean': 1.0, 'scale': 0.001},
                                                  interpolation_method='bilinear')
     shuffle(data_set.dirs)
     for item in data_set.dirs[:10]:
@@ -48,11 +48,11 @@ def test_augmentation():
         begin = time.time()
         img1, img2, label = augment_pipeline(img1, img2, label, discount_coeff = 1)
         print (time.time() - begin)
-        visualize.plot_pairs(img1, img2, label, type='flow')
+        # visualize.plot_pairs(img1, img2, label, type='stereo')
 
 
 if __name__ == '__main__':
 
-    test_crop()
+    # test_crop()
     test_augmentation()
     # profile.run("test_augmentation()")
