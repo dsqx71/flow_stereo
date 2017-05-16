@@ -16,10 +16,10 @@
 - ```symbol```: Network symbols and customed operators
 - ```others```: visualization, metric, and other utilities
 
-####Training
+#### Training
 Run ```python -m flow_stereo.train exp_name EXPERIMENT_NAME --gpus GPU_INDEX --epoch RESUMING_EPOCH```
 
 
-####Testing Example
+#### Testing Example
 Please refer to ```predict/predict_kitti.py``` and ```predict/predict_video.py```.
 Those examples provides a step-by-step walkthrough to help you learn the usage of prediction pipeline

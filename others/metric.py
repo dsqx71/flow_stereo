@@ -1,31 +1,34 @@
 import mxnet as mx
 import util
+import visualize
+import numpy as np
+import cv2
 
 class EndPointErr(mx.metric.EvalMetric):
     """
-        euclidean distance
+        euclidean distance:    sqrt((u_pred-u_label)^2 + (v_pred-v_label)^2)
     """
     def __init__(self):
-
         super(EndPointErr, self).__init__('End Point Error')
 
-    def update(self, gt_ndy, pred_ndy):
+    def update(self, gt, pred):
 
-        gt = gt_ndy[0].as_in_context(pred_ndy[0].context)
-        pred = pred_ndy[0]
+        # visualize.plot(pred[5].asnumpy()[0, 0], 'img')
+        # visualize.plot(pred[0].asnumpy()[0, 0], 'prediction')
+        # visualize.plot(pred[2].asnumpy()[0, 0], 'map')
+        # visualize.plot(pred[3].asnumpy()[0, 0], 'replace')
+        # visualize.plot(pred[4].asnumpy()[0, 0], 'refine')
 
-        # valid : True , NaN : False
-        mask = (gt == gt).asnumpy().astype('bool')
-        mask = mask[:, 0, :, :]
+        pred = pred[0].asnumpy()
+        gt = gt[0].asnumpy()
 
-        # Euclidean distance
-        r = (pred - gt) ** 2
-        r = mx.nd.sum_axis(r, 1) ** 0.5
-        r = r.asnumpy()
+        mask = (gt == gt)[:, 0, :, :]
+        r = pred - gt
+        r = cv2.pow(r, 2)
+        r = cv2.pow(r.sum(axis=1), 0.5)
 
-        error_mean = r[mask].sum() / mask.sum()
-        self.sum_metric += error_mean
-        self.num_inst += 1
+        self.sum_metric += r[mask].sum()
+        self.num_inst += mask.sum()
 
 class D1all(mx.metric.EvalMetric):
     """

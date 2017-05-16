@@ -82,5 +82,5 @@ cpdef resize(np.ndarray[np.float64_t, ndim=2] src, int x_shape, int y_shape, flo
             if accum_nan / (accum_weight+1e-14) > threshold:
                 dst[desty,destx] = np.nan
             else:
-                dst[desty,destx] = accum_value / (accum_weight)
+                dst[desty,destx] = accum_value / (accum_weight+1e-5)
     return dst

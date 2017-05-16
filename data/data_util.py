@@ -1,23 +1,21 @@
 import re
 import cv2
+import random
 import numpy as np
-from random import randint
 from ..cython import util_cython
 
 def readPFM(file):
     """
-    read .PFM file
-    Parameters
-    ----------
-    file : str
-        file dir
-
-    Returns
-    -------
-    data : numpy array
-    scale : float
+        read .PFM file
     """
     file = open(file, 'rb')
+
+    color = None
+    width = None
+    height = None
+    scale = None
+    endian = None
+
     header = file.readline().rstrip()
     if header == 'PF':
         color = True
@@ -45,7 +43,7 @@ def readPFM(file):
     data = np.reshape(data, shape)
     data = np.flipud(data)
 
-    return data, scale
+    return data
 
 
 def writePFM(file, image, scale=1):
@@ -167,8 +165,8 @@ def crop(img1, img2, label, target_height, target_width):
     assert target_height<=y_ori and target_width<=x_ori, 'wrong target shape'
 
     # cropping
-    x_begin = randint(0, x_ori - target_width)
-    y_begin = randint(0, y_ori - target_height)
+    x_begin = random.randint(0, x_ori - target_width)
+    y_begin = random.randint(0, y_ori - target_height)
     if label is not None:
         return img1[y_begin:y_begin+target_height, x_begin:x_begin+target_width], \
                img2[y_begin:y_begin+target_height, x_begin:x_begin+target_width], \

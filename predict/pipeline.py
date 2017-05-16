@@ -37,12 +37,16 @@ class Pipeline:
         self.model_type = config.get('model', 'model_type')
         self.model_prefix = config.get('model', 'model_prefix')
         self.need_preprocess = config.getboolean('model', 'need_preprocess')
+        model_path = os.path.join(base_folder, self.model_prefix)
+
+        tmp = np.load(model_path + '_mean.npy')
+        self.mean1 = tmp[0:3]
+        self.mean2 = tmp[3:6]
 
         if self.model_type not in ['stereo', 'flow']:
             raise ValueError('Allowable values of model prefix are "stereo" and "flow"')
 
         self.ctx = mx.gpu(int(config.get('model', 'ctx')))
-        model_path = os.path.join(base_folder, self.model_prefix)
         self.model = self.load_model(model_path)
 
         self.target_width = None
@@ -71,11 +75,8 @@ class Pipeline:
         img1 = img1 * 0.00392156862745098
         img2 = img2 * 0.00392156862745098
 
-        # TODO : remove the hard-code
-        # img1 = img1 - np.array([0.35372, 0.384273, 0.405834])
-        # img2 = img2 - np.array([0.353581, 0.384512, 0.406228])
-        img1 = img1 - np.array([0.383917, 0.40838907, 0.42546598])
-        img2 = img2 - np.array([0.38470935, 0.40924604, 0.42640202])
+        img1 = img1 - self.mean1
+        img2 = img2 - self.mean2
 
         img1 = cv2.resize(img1,(self.target_width, self.target_height))
         img2 = cv2.resize(img2,(self.target_width, self.target_height))

@@ -119,6 +119,40 @@ class MultiDataset(DataSet):
 
         return img1, img2, label, aux
 
+class DataScheduler(DataSet):
+
+    def __init__(self, data_type):
+
+        super(DataScheduler, self).__init__()
+        self.data_type = data_type
+        self.dataset_registry = {}
+        self.get_data_method = None
+
+    def register(self, dataset_list, num_iteration):
+        """
+        Add datasets to DataScheduler
+
+        Parameters
+        ----------
+        dataset_list : list of dataset
+        iteration_list : list of int
+        """
+        for dataset in dataset_list:
+            assert self.data_type == dataset.data_type, 'inconsistant data_type'
+            self.dataset_registry[dataset.__name__] = {}
+            self.dataset_registry[dataset.__name__]['dataset'] = dataset
+            self.dataset_registry[dataset.__name__]['dirs'] = dataset.dirs
+            dataset.dirs = None
+        self.num_iteration = num_iteration
+
+    def get_data(self, img_dir):
+
+        dataset_type = img_dir[1]
+        if dataset_type not in self.dataset_registry:
+            raise ValueError("The dataset doesn't exist")
+        self.get_data_method = self.dataset_registry[dataset_type].get_data
+        img1, img2, label, aux = self.get_data_method(img_dir[0])
+
 class SynthesisData(DataSet):
     """Synthesis dataset, it has three different scenes which have different baselines and focal length:
         - Driving: urban driving scence
@@ -153,13 +187,18 @@ class SynthesisData(DataSet):
 
     def __init__(self,  data_type, scene_list,
                  rendering_level,
-                 prefix=cfg.dataset.SythesisData_prefix):
+                 prefix=cfg.dataset.SythesisData_prefix,
+                 is_train=True):
 
         super(SynthesisData, self).__init__()
         self.data_type = data_type
         self.scene_list = scene_list
         self.rendering_level = rendering_level
+        self.is_train = is_train
         self.get_dir(prefix)
+
+        if self.is_train is False:
+            assert len(self.scene_list) == 1 and self.scene_list[0] == 'flyingthing3d', 'Only flyingthing scene has testing set'
 
     def get_dir(self, prefix):
 
@@ -199,30 +238,30 @@ class SynthesisData(DataSet):
             # flyingthing3d
             if 'flyingthing3d' in self.scene_list:
                 for render_level in self.rendering_level:
-                    for style in ('TRAIN',):
-                        for c in ('A','B','C'):
-                            num = glob.glob(prefix + '{}/frames_{}/{}/{}/*'.format('FlyingThings3D_release',
-                                                                                   render_level,
-                                                                                   style,
-                                                                                   c))
-                            for item in num:
-                                j = item.split('/')[-1]
-                                img_dir = prefix + '{}/frames_{}/{}/{}/{}/'.format('FlyingThings3D_release',
-                                                                                   render_level,
-                                                                                   style,
-                                                                                   c,
-                                                                                   j)
-                                label_dir = prefix + '{}/disparity/{}/{}/{}/'.format('FlyingThings3D_release',
-                                                                                     style,
-                                                                                     c,
-                                                                                     j)
-                                if 'TRAIN/C/0600/' in img_dir:
-                                    # TRAIN/C/0600/14 MISS
-                                    continue
-                                for i in range(6, 16):
-                                    self.dirs.append([img_dir + 'left/%04d.png' % i,
-                                                      img_dir + 'right/%04d.png' % i,
-                                                      label_dir + 'left/%04d.pfm' % i])
+                    style = 'TRAIN' if  self.is_train else 'TEST'
+                    for c in ('A','B','C'):
+                        num = glob.glob(prefix + '{}/frames_{}/{}/{}/*'.format('FlyingThings3D_release',
+                                                                               render_level,
+                                                                               style,
+                                                                               c))
+                        for item in num:
+                            j = item.split('/')[-1]
+                            img_dir = prefix + '{}/frames_{}/{}/{}/{}/'.format('FlyingThings3D_release',
+                                                                               render_level,
+                                                                               style,
+                                                                               c,
+                                                                               j)
+                            label_dir = prefix + '{}/disparity/{}/{}/{}/'.format('FlyingThings3D_release',
+                                                                                 style,
+                                                                                 c,
+                                                                                 j)
+                            if 'TRAIN/C/0600/' in img_dir:
+                                # TRAIN/C/0600/14 MISS
+                                continue
+                            for i in range(6, 16):
+                                self.dirs.append([img_dir + 'left/%04d.png' % i,
+                                                  img_dir + 'right/%04d.png' % i,
+                                                  label_dir + 'left/%04d.pfm' % i])
 
         elif self.data_type == 'flow':
             if 'Driving' in self.scene_list:
@@ -268,41 +307,41 @@ class SynthesisData(DataSet):
             #  flyingthings3D
             if 'flyingthing3d' in self.scene_list:
                 for render_level in self.rendering_level:
-                    for style in ('TRAIN',):
-                        for c in ('A', 'B', 'C'):
-                            num = glob.glob(prefix + '{}/frames_{}/{}/{}/*'.format('FlyingThings3D_release',
-                                                                                   render_level,
-                                                                                   style,
-                                                                                   c))
-                            for item in num:
-                                j = item.split('/')[-1]
-                                for orient in ('left','right'):
+                    style = 'TRAIN' if  self.is_train else 'TEST'
+                    for c in ('A', 'B', 'C'):
+                        num = glob.glob(prefix + '{}/frames_{}/{}/{}/*'.format('FlyingThings3D_release',
+                                                                               render_level,
+                                                                               style,
+                                                                               c))
+                        for item in num:
+                            j = item.split('/')[-1]
+                            for orient in ('left','right'):
 
-                                    if orient == 'left':
-                                        sym = 'L'
-                                    else:
-                                        sym = 'R'
+                                if orient == 'left':
+                                    sym = 'L'
+                                else:
+                                    sym = 'R'
 
-                                    for time in ('into_future', 'into_past'):
+                                for time in ('into_future', 'into_past'):
 
-                                        img_dir = prefix +'{}/frames_{}/{}/{}/{}/{}/'.format('FlyingThings3D_release',render_level,
-                                                                                     style,c,j,orient)
-                                        label_dir =prefix + '{}/optical_flow/{}/{}/{}/{}/{}/'.format('FlyingThings3D_release',style,
-                                                                                            c,j,time,orient)
-                                        if 'TRAIN/C/0600/' in img_dir:
-                                            continue
+                                    img_dir = prefix +'{}/frames_{}/{}/{}/{}/{}/'.format('FlyingThings3D_release',render_level,
+                                                                                 style,c,j,orient)
+                                    label_dir =prefix + '{}/optical_flow/{}/{}/{}/{}/{}/'.format('FlyingThings3D_release',style,
+                                                                                        c,j,time,orient)
+                                    if 'TRAIN/C/0600/' in img_dir:
+                                        continue
 
-                                        for i in range(6,15):
+                                    for i in range(6,15):
 
-                                            if time == 'into_future':
-                                                self.dirs.append([img_dir + '%04d.png' % i,
-                                                                  img_dir + '%04d.png' % (i + 1),
-                                                                  label_dir + 'OpticalFlowIntoFuture_%04d_%s.pfm' % (i, sym)])
-                                            else:
-                                                self.dirs.append([img_dir + '%04d.png' % (i + 1),
-                                                                  img_dir + '%04d.png' % i,
-                                                                  label_dir + 'OpticalFlowIntoPast_%04d_%s.pfm' % (
-                                                                  i + 1, sym)])
+                                        if time == 'into_future':
+                                            self.dirs.append([img_dir + '%04d.png' % i,
+                                                              img_dir + '%04d.png' % (i + 1),
+                                                              label_dir + 'OpticalFlowIntoFuture_%04d_%s.pfm' % (i, sym)])
+                                        else:
+                                            self.dirs.append([img_dir + '%04d.png' % (i + 1),
+                                                              img_dir + '%04d.png' % i,
+                                                              label_dir + 'OpticalFlowIntoPast_%04d_%s.pfm' % (
+                                                              i + 1, sym)])
             #  Monkaa
             if 'Monkaa' in self.scene_list:
                 for render_level in self.rendering_level:
@@ -349,16 +388,11 @@ class SynthesisData(DataSet):
         img2 = cv2.imread(img_dir[1])
 
         if self.data_type == 'stereo':
-
-            label, scale = data_util.readPFM(img_dir[2])
-            label = label * scale
+            label = data_util.readPFM(img_dir[2])
 
         elif self.data_type == 'flow':
-
-            label, scale = data_util.readPFM(img_dir[2])
+            label = data_util.readPFM(img_dir[2])
             label = label[:, :, :2]
-            label = label * scale
-
         # synthesis dataset has no auxiliary data
         return img1, img2, label, None
 

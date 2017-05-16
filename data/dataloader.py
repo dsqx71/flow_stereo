@@ -13,6 +13,8 @@ import numpy as np
 from .config import cfg
 from .data_util import resize
 
+import time
+
 DataBatch = namedtuple('DataBatch', ['data', 'label', 'pad', 'index'])
 class numpyloader(mx.io.DataIter):
     """
@@ -51,6 +53,7 @@ class numpyloader(mx.io.DataIter):
         indicates how fast the discount of augmentation coefficients changes, as the number of iterations increases.
     """
     def __init__(self,
+                 ctx,
                  experiment_name,
                  dataset,
                  augmentation,
@@ -66,6 +69,8 @@ class numpyloader(mx.io.DataIter):
                  half_life=50000):
 
         super(numpyloader, self).__init__()
+        # ctx
+        self.ctx = ctx[0]
         # shapes
         self.batch_shape = batch_shape # (batchsize, channel, height, width)
         self.target_shape = batch_shape[2:] # target_height, target_width of input
@@ -131,7 +136,7 @@ class numpyloader(mx.io.DataIter):
         """ we assume that names of output and names of corresponding label have the same prefix
             like : 'loss1_output', 'loss1_label'
         """
-        return [(item[0].replace('output', 'label'), item[1]) for item in self.label_shape]
+        return [(item[0], item[1]) for item in self.label_shape]
 
     def _thread_start(self):
         # init workers
@@ -177,7 +182,10 @@ class numpyloader(mx.io.DataIter):
             for item in label_shape:
                 label_resized = resize(label, data_type, interpolation_method, item[1][2], item[1][3])
                 labels.append(label_resized)
-            result_queue.put((img1, img2, labels, index))
+
+            mean1 = img1.reshape(-1, 3).mean(axis=0)
+            mean2 = img2.reshape(-1, 3).mean(axis=0)
+            result_queue.put((img1, img2, labels, index, mean1, mean2))
 
     def _insert_queue(self):
 
@@ -207,10 +215,10 @@ class numpyloader(mx.io.DataIter):
 
         for i in range(self.current_index, self.current_index+self.batch_shape[0]):
 
-            img1, img2, label, aux = self.result_queue.get()
+            img1, img2, label, aux, mean1, mean2 = self.result_queue.get()
 
-            tot_mean1 += img1.reshape(-1, 3).mean(axis=0)
-            tot_mean2 += img2.reshape(-1, 3).mean(axis=0)
+            tot_mean1 += mean1
+            tot_mean2 += mean2
 
             for j in range(len(self.label)):
                 self.label[j].append(label[j])
@@ -226,15 +234,16 @@ class numpyloader(mx.io.DataIter):
         self.mean1 /= self.num_iteration * self.batch_shape[0]
         self.mean2 /= self.num_iteration * self.batch_shape[0]
 
-        self.first_img = np.array(self.first_img) - self.mean1
-        self.second_img = np.array(self.second_img) - self.mean2
-
+        tic = time.time()
+        self.first_img = mx.nd.array(self.first_img, ctx=self.ctx) - mx.nd.array(self.mean1, ctx=self.ctx)
+        self.second_img = mx.nd.array(self.second_img, ctx=self.ctx) - mx.nd.array(self.mean2, ctx=self.ctx)
+        print (time.time() - tic)
         self.current_index += self.batch_shape[0]
         return True
 
     def getdata(self):
-        return [mx.nd.array(self.first_img.transpose(0, 3, 1, 2)),
-                mx.nd.array(self.second_img.transpose(0, 3, 1, 2))] + self.rnn_staff
+        return [mx.nd.transpose(self.first_img, axes=(0, 3, 1, 2)),
+                mx.nd.transpose(self.second_img, axes=(0, 3, 1, 2))] + self.rnn_staff
 
     @property
     def getaux(self):
@@ -242,9 +251,9 @@ class numpyloader(mx.io.DataIter):
 
     def getlabel(self):
         if self.data_type =='stereo':
-            return [mx.nd.array(np.expand_dims(np.array(self.label[i]), 1)) for i in range(len(self.label))]
+            return [mx.nd.expand_dims(mx.nd.array(self.label[i], ctx=self.ctx), axis=1) for i in range(len(self.label))]
         elif self.data_type == 'flow':
-            return [mx.nd.array(np.array(self.label[i]).transpose(0, 3, 1, 2)) for i in range(len(self.label))]
+            return [mx.nd.transpose(mx.nd.array(self.label[i], ctx=self.ctx), axes=(0, 3, 1, 2)) for i in range(len(self.label))]
 
     def getindex(self):
         return self.current_index

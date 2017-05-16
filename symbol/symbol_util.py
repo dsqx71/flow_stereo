@@ -31,8 +31,12 @@ class SparseRegressionLoss(mx.operator.CustomOp):
             tmp = np.sign(y - label) * self.loss_scale / float(normalize_coeff)
         else:
             tmp = (y - label) * self.loss_scale / float(normalize_coeff)
+
         # ignore NaN
         tmp[mask_nan] = 0
+        if normalize_coeff == 0:
+            tmp[:] = 0
+
         self.assign(in_grad[0], req[0], mx.nd.array(tmp))
 
 @mx.operator.register("SparseRegressionLoss")
@@ -155,3 +159,75 @@ def conv_share(sym, name, weights, bias):
     conv2 = mx.sym.LeakyReLU(data = conv2, act_type = 'leaky', slope = 0.1)
 
     return conv1, conv2
+
+def get_conv(name, data, num_filter, kernel, stride, pad, with_relu,  dilate=(1, 1)):
+
+    conv = mx.symbol.Convolution(name=name, data=data, num_filter=num_filter, kernel=kernel,
+                                 stride=stride, pad=pad, dilate=dilate, no_bias=True)
+
+    return (mx.sym.Activation(data=conv, act_type='relu', name=name+'_relu') if with_relu else conv)
+
+def warp(img, flow, name):
+    grid = mx.sym.GridGenerator(flow, transform_type='warp',
+                                name=name + '_gridgenerator')
+    img_warped = mx.sym.BilinearSampler(img, grid,
+                                        name=name + '_warp')
+    return img_warped
+
+def get_conv_bn(name, data, num_filter, kernel, stride, pad, with_relu, bn_momentum=0.9, dilate=(1, 1), weight=None,
+             bias=None, is_conv=True):
+
+    if is_conv is True:
+        if weight is None:
+            conv = mx.symbol.Convolution(
+                name=name,
+                data=data,
+                num_filter=num_filter,
+                kernel=kernel,
+                stride=stride,
+                pad=pad,
+                dilate=dilate,
+                no_bias=False,
+                workspace=4096)
+        else:
+            conv = mx.symbol.Convolution(
+                name=name,
+                data=data,
+                num_filter=num_filter,
+                kernel=kernel,
+                stride=stride,
+                pad=pad,
+                weight=weight,
+                bias=bias,
+                dilate=dilate,
+                no_bias=False,
+                workspace=4096)
+    else:
+        conv = mx.symbol.Deconvolution(
+            name=name,
+            data=data,
+            num_filter=num_filter,
+            kernel=kernel,
+            stride=stride,
+            pad=pad,
+            no_bias=False,
+            workspace=4096)
+    bn = mx.symbol.BatchNorm(
+        name=name + '_bn',
+        data=conv,
+        fix_gamma=False,
+        momentum=bn_momentum,
+        eps=1e-5 + 1e-10)
+
+    return mx.sym.LeakyReLU(data=bn, act_type='leaky', slope=0.1) if with_relu else bn
+
+def warp_flownet(img1, img2, flow, name, factor=2):
+
+    flow = mx.sym.UpSampling(data=flow, scale=factor, num_filter=2,
+                             num_args=1, sample_type='bilinear', name='upsamplingop_flow{}'.format(name))
+    # flow = mx.sym.BlockGrad(data=flow, name='blockgrad_flow{}'.format(name))
+    img2_warped = warp(img=img2, flow=flow, name='flownet-{}-warp'.format(name))
+    error = mx.sym.abs(img2_warped - img1)
+    data = mx.sym.Concat(img1, img2, flow, error, img2_warped)
+
+    return data

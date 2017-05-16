@@ -90,4 +90,17 @@ def generate_deployconfig(experiment_name, data_type):
         f.write('model_type = {}\n'.format(data_type))
         f.write('model_prefix = {}\n'.format(experiment_name))
         f.write('ctx = 0\n')
-        f.write('need_preprocessing = 1\n')
+        f.write('need_preprocess = 1\n')
+
+
+def update_arg_params(arg_params, low_level_name, high_level_name):
+
+    """
+        Initialize current level model from low level model
+    """
+    arg_names = arg_params.keys()
+    for name in arg_names:
+        if low_level_name in name:
+            new_name = name.replace(low_level_name, high_level_name)
+            arg_params[new_name] = arg_params[name].copy()
+    return arg_params

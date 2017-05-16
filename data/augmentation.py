@@ -92,17 +92,34 @@ class augmentation(object):
                  cropped_height,
                  data_type,
                  augment_ratio,
-                 noise_std,
                  interpolation_method,
+                 # spatial transformation
                  mirror_rate,
+                 flip_rate,
                  rotate_range,
                  translate_range,
                  zoom_range,
                  squeeze_range,
+                 # chromatic transformation
                  gamma_range,
                  brightness_range,
                  contrast_range,
-                 rgb_multiply_range):
+                 rgb_multiply_range,
+                 # eigenvector transformation
+                 lmult_pow,
+                 lmult_mult,
+                 lmult_add,
+                 sat_pow,
+                 sat_mult,
+                 sat_add,
+                 col_pow,
+                 col_mult,
+                 col_add,
+                 ladd_pow,
+                 ladd_mult,
+                 ladd_add,
+                 col_rotate,
+                 noise_range):
 
         self.augment_ratio = augment_ratio
         self.data_type = data_type
@@ -115,9 +132,10 @@ class augmentation(object):
         elif 'nearest' in interpolation_method:
             self.interpolation_method = cv2.INTER_NEAREST
         else:
-            raise ValueError("wrong interpolation method")
+            raise ValueError("Wrong interpolation method")
 
         # spatial transform
+        self.flip_rate = flip_rate
         self.mirror_rate = mirror_rate
         self.rotate_range = rotate_range
         self.translate_range = translate_range
@@ -129,24 +147,47 @@ class augmentation(object):
         self.brightness_range = brightness_range
         self.contrast_range = contrast_range
         self.rgb_multiply_range = rgb_multiply_range
-        self.noise_range = noise_std
 
+        # eigvector tranform
+        self.lmult_pow = lmult_pow
+        self.lmult_mult = lmult_mult
+        self.lmult_add =  lmult_add
+        self.sat_pow = sat_pow
+        self.sat_mult = sat_mult
+        self.sat_add = sat_add
+        self.col_pow = col_pow
+        self.col_mult = col_mult
+        self.col_add = col_add
+        self.ladd_pow = ladd_pow
+        self.ladd_mult = ladd_mult
+        self.ladd_add = ladd_add
+        self.col_rotate = col_rotate
 
-    def generate_random(self, random_range, size=None):
+        # noise
+        self.noise_range = noise_range
+
+        # eigen vector
+        self.eigvec = np.array([[0.51, 0.56, 0.65],
+                                [0.79, 0.01,-0.62],
+                                [0.35,-0.83, 0.44]])
+
+    def generate_random(self, random_range, size=(1,)):
         """
-        random number generator
+           random number generator
         """
+        mean = random_range['mean']
+        spread = random_range['spread'] * self.discount_coeff
+        result = np.zeros(size)
         if random_range['method'] == 'uniform':
-            discount = (random_range['high'] - random_range['low']) * (1.0 - self.discount_coeff) / 2.0
-            low = random_range['low'] + discount
-            high = random_range['high'] - discount
-            result = np.random.uniform(low, high, size)
+            cv2.randu(result, mean-spread, mean+spread)
         elif random_range['method'] == 'normal':
-            result = np.random.normal(loc=random_range['mean'],
-                                      scale=random_range['scale']*self.discount_coeff,
-                                      size=size)
+            cv2.randn(result, mean=mean, stddev=spread)
         else:
-            raise ValueError("wrong sampling method")
+            raise ValueError("Wrong sampling method")
+        result = np.exp(result) if random_range['exp'] else result
+
+        if size == (1, ):
+            result = result[0]
         return result
 
     def generate_spatial_coeffs(self):
@@ -158,7 +199,7 @@ class augmentation(object):
                               [0, 0, 1]])
 
             # mirror
-            if random.uniform(0, 1) < self.mirror_rate * self.discount_coeff:
+            if np.random.uniform(0, 1) < self.mirror_rate * self.discount_coeff:
                 mirror = np.array([[-1, 0,  0.5*self.cropped_width],
                                    [ 0, 1, -0.5*self.cropped_height],
                                    [ 0, 0, 1]])
@@ -168,6 +209,13 @@ class augmentation(object):
                                    [0, 1, -0.5*self.cropped_height],
                                    [0, 0, 1]])
             coeff = np.dot(mirror, coeff)
+
+            # vertical flip
+            if np.random.uniform(0, 1) < self.flip_rate * self.discount_coeff:
+                flip = np.array([[1, 0, 0],
+                                 [0,-1, 0],
+                                 [0, 0, 1]])
+                coeff = np.dot(flip, coeff)
 
             # rotate
             if self.data_type == 'flow':
@@ -226,12 +274,7 @@ class augmentation(object):
 
         src_grid = np.dot(coeff, dst_grid)
         """
-        # TODO: it does not support performing indepandent spaital transformation on the two images
-        coeff = None
-        for i in range(self.max_num_tries):
-            coeff = self.generate_spatial_coeffs()
-            if coeff is not None:
-                break
+        coeff = self.generate_spatial_coeffs()
         if coeff is not None:
             grid = np.zeros((3, self.cropped_height, self.cropped_width))
             xv, yv = np.meshgrid(np.arange(self.cropped_height), np.arange(self.cropped_width))
@@ -258,7 +301,7 @@ class augmentation(object):
 
             return img1_result, img2_result, label_result
         else:
-            print("Augmentation: Exceeded maximum tries in finding spatial coeffs.")
+            # print("Augmentation: Exceeded maximum tries in finding spatial coeffs.")
             img1_result, img2_result, label_result = data_util.crop(img1, img2, label, target_height=self.cropped_height,
                                                                                        target_width=self.cropped_width)
             return img1_result, img2_result, label_result
@@ -291,17 +334,117 @@ class augmentation(object):
         img = cv2.add(img, coeff.brightness)
         # contrast change
         img = 0.5 + (img-0.5) * coeff.contrast
-        noise = np.zeros_like(img)
-        cv2.randn(dst=noise, mean=0, stddev=self.noise_range)
-        img += noise
         img = clip(img, 0.0, 1.0)
         img = img * 255
         return img
 
     def chromatic_transform(self, img1, img2):
         coeff = self.generate_chromatic_coeffs()
-        img1 = self.apply_chromatic_transform(img1, coeff)
-        img2 = self.apply_chromatic_transform(img2, coeff)
+        if random.uniform(0,1) < 0.5:
+            img2 = self.apply_chromatic_transform(img2, coeff)
+        else:
+            img1 = self.apply_chromatic_transform(img1, coeff)
+        return img1, img2
+
+    def generate_eigenvec_coeffs(self):
+
+        coeff = edict()
+        coeff.pow_nomean = np.array([self.generate_random(self.ladd_pow),
+                                     self.generate_random(self.col_pow),
+                                     self.generate_random(self.col_pow)])
+        coeff.add_nomean = np.array([self.generate_random(self.ladd_add),
+                                     self.generate_random(self.col_add),
+                                     self.generate_random(self.col_add)])
+        coeff.multi_nomean = np.array([self.generate_random(self.ladd_mult),
+                                       self.generate_random(self.col_mult),
+                                       self.generate_random(self.col_mult)])
+        tmp = self.generate_random(self.sat_pow)
+        coeff.pow_withmean = np.array([tmp, tmp])
+
+        tmp = self.generate_random(self.sat_add)
+        coeff.add_withmean = np.array([tmp, tmp])
+
+        tmp = self.generate_random(self.sat_mult)
+        coeff.mult_withmean = np.array([tmp, tmp])
+
+        coeff.lmult_pow = self.generate_random(self.lmult_pow)
+        coeff.lmult_mult = self.generate_random(self.lmult_mult)
+        coeff.lmult_add = self.generate_random(self.lmult_add)
+        coeff.col_angle = self.generate_random(self.col_rotate)
+
+        return coeff
+
+    def apply_eigenvec_transform(self, coeff, img):
+
+        shape = img.shape
+        img = img.reshape(-1, 3)
+        mean_rgb = img.mean(axis=0)
+        eig = np.dot(self.eigvec, img.T)
+        max_abs_eig = np.abs(eig).max(axis=1)
+
+        mean_eig = np.dot(self.eigvec, mean_rgb) / (max_abs_eig + 1E-7)
+        max_length = np.linalg.norm(max_abs_eig, ord=2)
+
+        #  doing the nomean stuff
+        img = img - mean_rgb
+        eig = np.dot(self.eigvec, img.T)
+        eig = eig.T
+        eig = eig / (max_abs_eig + 1E-7)
+        eig = eig.reshape(shape)
+        for i in range(3):
+            eig[:, :, i] = cv2.pow(np.abs(eig[:, :, i]), coeff.pow_nomean[i]) * np.sign(eig[:, :, i])
+        eig = eig + coeff.add_nomean
+        eig = eig * coeff.multi_nomean
+
+        # re-adding the mean
+        eig = eig + mean_eig
+        eig[:, :, 0] = cv2.pow(np.abs(eig[:, :, 0]), coeff.pow_withmean[0]) * np.sign(eig[:, :, 0])
+        eig[:, :, 0] = eig[:, :, 0] + coeff.add_withmean[0]
+        eig[:, :, 0] = eig[:, :, 0] * coeff.mult_withmean[0]
+
+        # doing the withmean stuff
+        s = np.sqrt(eig[:, :, 1] * eig[:, :, 1] + eig[:, :, 2] * eig[:, :, 2])
+        s1 = s.copy()
+        s1 = cv2.pow(s1, coeff.pow_withmean[1])
+        s1 = s1 + coeff.add_withmean[1]
+        s1[s1 < 0] = 0
+        s1 = s1 * coeff.mult_withmean[1]
+
+        if coeff.col_angle !=0 :
+            tmp1 = cos(coeff.col_angle) * eig[:, :, 1] - sin(coeff.col_angle) * eig[:, :, 2]
+            tmp2 = sin(coeff.col_angle) * eig[:, :, 1] + cos(coeff.col_angle) * eig[:, :, 2]
+            eig[:, :, 1] = tmp1
+            eig[:, :, 2] = tmp2
+
+        eig = eig * max_abs_eig
+        l1 = np.linalg.norm(eig, axis=2, ord=2)
+        l1 = l1 / (max_length + 1E-7)
+
+        for i in range(1, 3):
+            eig[:, :, i] = eig[:, :, i] / (s + 1E-7) * s1
+
+        l = np.linalg.norm(eig, ord=2, axis=2)
+        l1 = cv2.pow(l1, coeff.lmult_pow)
+        l1 = l1 + coeff.lmult_add
+        l1[ l1 < 0] = 0
+        l1 = l1 * coeff.lmult_mult
+        l1 = l1 * max_length
+
+        for i in range(3):
+            eig[:, :, i] = eig[:, :, i] / (l + 1E-7) * l1
+            eig[:, :, i] = np.where(eig[:, :, i] < max_abs_eig[i], eig[:, :, i], max_abs_eig[i])
+        # convert to RGB
+        rgb = np.dot(eig, self.eigvec)
+        rgb = clip(rgb, 0, 255)
+        rgb = rgb.reshape(shape)
+        return rgb
+
+    def eigenvec_transform(self, img1, img2):
+
+        coeff = self.generate_eigenvec_coeffs()
+        img1 = self.apply_eigenvec_transform(coeff, img1)
+        img2 = self.apply_eigenvec_transform(coeff, img2)
+
         return img1, img2
 
     def __call__(self, img1, img2, label, discount_coeff):
@@ -319,18 +462,16 @@ class augmentation(object):
         self.height = img1.shape[0]
         self.width = img1.shape[1]
         self.discount_coeff = discount_coeff
-
-        if random.uniform(0, 1) < self.augment_ratio:
+        if np.random.uniform(0, 1) < self.augment_ratio * self.discount_coeff:
             img1, img2, label = self.spatial_transform(img1, img2, label)
+            img1, img2 = self.eigenvec_transform(img1, img2)
             img1, img2 = self.chromatic_transform(img1, img2)
+            noise = self.generate_random(self.noise_range)
+            img1 += noise
+            img2 += noise
         else:
             img1, img2, label = data_util.crop(img1, img2, label, self.cropped_height, self.cropped_width)
         return img1, img2, label
-
-    # TODO: Eigenspace tranformation
-    # TODO: render rain / frog / sun light
-    # TODO: perform spatial transform on two images individually
-
 
 
 

@@ -1,20 +1,5 @@
-import mxnet as mx
 from .symbol_util import *
 
-def conv_share(sym, name, weights, bias):
-    """
-     siamese network
-    """
-    conv1 = mx.sym.Convolution(data=sym, pad=(3, 3), kernel=(7, 7), stride=(2, 2), num_filter=64,
-                               weight=weights[0], bias=bias[0], name='conv1' + name)
-    conv1 = mx.sym.LeakyReLU(data = conv1,  act_type = 'leaky', slope  = 0.1)
-
-    conv2 = mx.sym.Convolution(data = conv1, pad  = (2,2),  kernel=(5,5), stride=(2,2), num_filter=128,
-                                 weight=weights[1], bias=bias[1], name='conv2' + name)
-    conv2 = mx.sym.LeakyReLU(data = conv2, act_type = 'leaky', slope = 0.1)
-
-    return conv1, conv2
-       
 def dispnet(loss_scale, net_type='stereo', is_sparse = False):
     """
     create Dispnet or Flownet symbol. There is a slight difference between Dispnet and Flownet
@@ -86,9 +71,9 @@ def dispnet(loss_scale, net_type='stereo', is_sparse = False):
         concat = mx.sym.Concat(corr, conv_redir)
 
     if net_type =='stereo':
-        stride = (2,2)
+        stride = (2, 2)
     elif net_type == 'flow':
-        stride = (1,1)
+        stride = (1, 1)
 
     # The structure below is similar to VGG
     conv3a = mx.sym.Convolution(concat, pad=(2, 2), kernel=(5, 5), stride=stride, num_filter=256, name='conv3a')
@@ -166,7 +151,9 @@ def dispnet(loss_scale, net_type='stereo', is_sparse = False):
     prediction['loss1'] = pr1
 
     # ignore the loss functions with loss scale of zero
-    for key in loss_scale:
+    keys = loss_scale.keys()
+    keys.sort()
+    for key in keys:
         if loss_scale[key] > 0.0:
             loss.append(get_loss(-prediction[key], labels[key], loss_scale[key], name=key,
                                  get_input=False, is_sparse = is_sparse, type=net_type))

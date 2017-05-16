@@ -8,30 +8,35 @@ from ..data import dataset
 from ..others import visualize
 from random import shuffle
 import time
+import cv2
 
 def test_SynthesisData():
     # check disparity
-    data_set = dataset.SynthesisData(data_type='stereo',
-                                     scene_list=['flyingthing3d', 'Driving', 'Monkaa'],
-                                     rendering_level=['cleanpass', 'finalpass'])
-    shuffle(data_set.dirs)
-    assert len(data_set.dirs) > 70000, 'wrong number'
-
-    for item in data_set.dirs[:10]:
-        tic = time.time()
-        img1, img2, label, aux = data_set.get_data(item)
-        print time.time() - tic
-        # visualize.plot_pairs(img1, img2, label, 'stereo')
+    # data_set = dataset.SynthesisData(data_type='stereo',
+    #                                  scene_list=['flyingthing3d', 'Driving', 'Monkaa'],
+    #                                  rendering_level=['cleanpass', 'finalpass'])
+    # shuffle(data_set.dirs)
+    # # assert len(data_set.dirs) > 70000, 'wrong number'
+    #
+    # for item in data_set.dirs[:10]:
+    #     tic = time.time()
+    #     img1, img2, label, aux = data_set.get_data(item)
+    #     cv2.imwrite('/home/xudong/flowstereo-predictor/test/stereo/img1.png', img1)
+    #     cv2.imwrite('/home/xudong/flowstereo-predictor/test/stereo/img2.png', img2)
+    #     print time.time() - tic
+    #     visualize.plot_pairs(img1, img2, label, 'stereo')
 
 
     # check optical flow field
     data_set = dataset.SynthesisData(data_type='flow',
-                                     scene_list=['flyingthing3d', 'Driving', 'Monkaa'],
-                                     rendering_level=['cleanpass', 'finalpass'])
+                                     scene_list=['flyingthing3d'],
+                                     rendering_level=['cleanpass'])
     shuffle(data_set.dirs)
-    for item in data_set.dirs[:1]:
+    for item in data_set.dirs[:100]:
+        tic = time.time()
         img1, img2, label, aux = data_set.get_data(item)
-        visualize.plot_pairs(img1, img2, label, 'flow')
+        print (time.time() - tic)
+        # visualize.plot_pairs(img1, img2, label, 'flow')
 
 def test_KittiData():
     # check disparity
@@ -56,9 +61,12 @@ def test_FlyingChairData():
     assert len(data_set.dirs) ==  22872, 'wrong number'
     for item in data_set.dirs[:10]:
         tic = time.time()
+        print item
         img1, img2, label, aux = data_set.get_data(item)
+        cv2.imwrite('/home/xudong/flowstereo-predictor/test/flow/img1.png',img1)
+        cv2.imwrite('/home/xudong/flowstereo-predictor/test/flow/img2.png',img2)
         print (time.time() - tic)
-        # visualize.plot_pairs(img1, img2, label, 'flow')
+        visualize.plot_pairs(img1, img2, label, 'flow')
 
 def test_TuSimpleData():
     # The dataset only has stereo data
@@ -88,5 +96,5 @@ if __name__ == '__main__':
     # test_MultiDataSet()
     # test_TuSimpleData()
     test_SynthesisData()
-    test_FlyingChairData()
+    # test_FlyingChairData()
     # test_KittiData()
