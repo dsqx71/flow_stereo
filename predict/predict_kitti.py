@@ -19,7 +19,7 @@ if __name__ == '__main__':
     # data_type : 'stereo' or 'flow'
     model_type = piper.model_type
     # data = dataset.FlyingChairsDataset()
-    data = dataset.KittiDataset(model_type, '2012', is_train=True)
+    data = dataset.KittiDataset(model_type, '2015', is_train=False)
     # data = dataset.SynthesisData(data_type=model_type,
     #                                  scene_list=['flyingthing3d'],
     #                                  rendering_level=['cleanpass'])
@@ -27,18 +27,19 @@ if __name__ == '__main__':
     error = 0.0
     count = 0.0
     for index, item in enumerate(data.dirs):
-
+        if index == 104:
+            continue
         img1, img2, label, aux = data.get_data(item)
         ret = piper.process(img1, img2)
-        err = np.power(ret-label, 2)
-        if model_type == 'flow':
-            err = err.sum(axis=2)
-        err = np.power(err, 0.5)
-        error += err[err==err].sum()
-        count += (err==err).sum()
-        print 'index : ', index
-        print 'EPE : ',(err[err==err].sum()/(err==err).sum())
-        print 'total EPE : ', error/count
+        # err = np.power(ret-label, 2)
+        # if model_type == 'flow':
+        #     err = err.sum(axis=2)
+        # err = np.power(err, 0.5)
+        # error += err[err==err].sum()
+        # count += (err==err).sum()
+        # print 'index : ', index
+        # print 'EPE : ',(err[err==err].sum()/(err==err).sum())
+        # print 'total EPE : ', error/count
 
         if args.is_show:
             visualize.plot_pairs(img1, img2, ret, model_type, plot_patch=False)

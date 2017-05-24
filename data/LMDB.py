@@ -99,7 +99,7 @@ class lmdbloader(mx.io.DataIter):
         self.worker_proc = None
         self.stop_flag = mp.Value('b', False)
         self.result_queue = mp.Queue(maxsize=self.batch_shape[0] * 50)
-        self.data_queue = mp.Queue(maxsize=self.batch_shape[0] * 70)
+        self.data_queue = mp.Queue(maxsize=self.batch_shape[0] * 50)
         self.reset()
 
     @property
@@ -194,8 +194,8 @@ class lmdbloader(mx.io.DataIter):
 
             mean1 = img1.reshape(-1, 3).mean(axis=0)
             mean2 = img2.reshape(-1, 3).mean(axis=0)
-            img1 = img1.astype(np.float32)
-            img2 = img2.astype(np.float32)
+            img1 = img1.astype(np.float16)
+            img2 = img2.astype(np.float16)
 
             result_queue.put((img1, img2, labels, key, mean1, mean2))
 

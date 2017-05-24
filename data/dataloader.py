@@ -181,10 +181,12 @@ class numpyloader(mx.io.DataIter):
             labels = []
             for item in label_shape:
                 label_resized = resize(label, data_type, interpolation_method, item[1][2], item[1][3])
-                labels.append(label_resized)
+                labels.append(label_resized.astype(np.int16))
 
             mean1 = img1.reshape(-1, 3).mean(axis=0)
             mean2 = img2.reshape(-1, 3).mean(axis=0)
+            img1 = img1.astype(np.float16)
+            img2 = img2.astype(np.float16)
             result_queue.put((img1, img2, labels, index, mean1, mean2))
 
     def _insert_queue(self):
@@ -237,7 +239,7 @@ class numpyloader(mx.io.DataIter):
         tic = time.time()
         self.first_img = mx.nd.array(self.first_img, ctx=self.ctx) - mx.nd.array(self.mean1, ctx=self.ctx)
         self.second_img = mx.nd.array(self.second_img, ctx=self.ctx) - mx.nd.array(self.mean2, ctx=self.ctx)
-        print (time.time() - tic)
+
         self.current_index += self.batch_shape[0]
         return True
 

@@ -10,7 +10,7 @@ import os
 import mxnet as mx
 from symbol import dispnet_symbol, resnet_symbol, spynet_symbol, \
                    flownet2_symbol, DRR_symbol, flownets_half_symbol, \
-                   flownet2ss_symbol
+                   flownet2ss_symbol, dispnet2CSS_symbol, flownet2CSS_origin_symbol
 from data import dataset, dataloader, augmentation, config, LMDB
 from others import util, metric
 
@@ -937,7 +937,7 @@ def flownet2_pretrain(epoch, ctx, lr):
     data_type = 'flow'
 
     # shapes
-    batch_shape = (4, 3, 384, 768)
+    batch_shape = (4, 3, 384, 448)
     num_iteration = 1200000
 
     # optimizer params
@@ -954,22 +954,25 @@ def flownet2_pretrain(epoch, ctx, lr):
 
     # symbol params
     loss_scale = {}
-    loss_scale['flownetc'] = {'loss2': 0.30,
-                              'loss3': 0.10,
-                              'loss4': 0.01,
+    loss_scale['flownetc'] = {'loss1': 1.00,
+                              'loss2': 0.00,
+                              'loss3': 0.00,
+                              'loss4': 0.00,
                               'loss5': 0.00,
                               'loss6': 0.00}
 
 
-    loss_scale['flownets1'] = {'loss2': 0.30,
-                               'loss3': 0.10,
-                               'loss4': 0.01,
+    loss_scale['flownets1'] = {'loss1': 1.00,
+                               'loss2': 0.00,
+                               'loss3': 0.00,
+                               'loss4': 0.00,
                                'loss5': 0.00,
                                'loss6': 0.00}
 
-    loss_scale['flownets2'] = {'loss2': 1.00,
-                               'loss3': 0.10,
-                               'loss4': 0.01,
+    loss_scale['flownets2'] = {'loss1': 1.00,
+                               'loss2': 0.00,
+                               'loss3': 0.00,
+                               'loss4': 0.00,
                                'loss5': 0.00,
                                'loss6': 0.00}
 
@@ -981,11 +984,11 @@ def flownet2_pretrain(epoch, ctx, lr):
 
     # dataset
     # data_set = dataset.FlyingChairsDataset()
-    data_set = dataset.MultiDataset(data_type='flow')
-    data_set.register([dataset.SynthesisData(data_type='flow',
-                                     scene_list=['flyingthing3d'],
-                                     rendering_level=['cleanpass']),])
-                       #dataset.FlyingChairsDataset()])
+    # data_set = dataset.MultiDataset(data_type='flow')
+    # data_set.register([dataset.SynthesisData(data_type='flow',
+    #                                  scene_list=['flyingthing3d'],
+    #                                  rendering_level=['cleanpass']),])
+    #                    #dataset.FlyingChairsDataset()])
 
     # augmentation setting
     augment_pipeline = augmentation.augmentation(
@@ -994,7 +997,7 @@ def flownet2_pretrain(epoch, ctx, lr):
         cropped_height=batch_shape[2],
         cropped_width=batch_shape[3],
         data_type='flow',
-        augment_ratio=0.8,
+        augment_ratio=1.0,
         mirror_rate=0.0,
         flip_rate = 0.0,
         noise_range = {'method':'uniform', 'exp':False, 'mean':0.03, 'spread':0.03},
@@ -1045,16 +1048,16 @@ def flownet2_pretrain(epoch, ctx, lr):
     else:
         # previous training checkpoint
         args, auxs = util.load_checkpoint(checkpoint_path, epoch)
-        args_new = {}
-        for key in args:
-            if key in net.list_arguments():
-                if key.startswith('upsampling'):
-                    continue
-                args_new[key] = args[key]
-            else:
-                print key
+        # args_new = {}
+        # for key in args:
+        #     if key in net.list_arguments():
+        #         if key.startswith('upsampling'):
+        #             continue
+        #         args_new[key] = args[key]
+        #     else:
+        #         print key
 
-        args = args_new
+        # args = args_new
 
     # infer shapes of outputs
     shapes = net.infer_shape(img1=batch_shape, img2=batch_shape)
@@ -1087,7 +1090,7 @@ def flownet2_pretrain(epoch, ctx, lr):
                                initial_coeff=0.1,
                                final_coeff=1.0,
                                half_life=50000,
-                               chunk_size=16,
+                               chunk_size=512,
                                n_thread=20)
 
     dataiter = mx.io.PrefetchingIter(lmdbiter)
@@ -1103,7 +1106,7 @@ def flownet2_pretrain(epoch, ctx, lr):
             eval_metric=eval_metric,
             epoch_end_callback=mx.callback.module_checkpoint(mod,
                                                              checkpoint_path,
-                                                             period=1,
+                                                             period=4,
                                                              save_optimizer_states=True),
             batch_end_callback=[mx.callback.Speedometer(batch_shape[0], 20)],
             kvstore='device',
@@ -1113,8 +1116,8 @@ def flownet2_pretrain(epoch, ctx, lr):
             arg_params=args,
             aux_params=auxs,
             begin_epoch=epoch,
-            num_epoch= 500,
-            allow_missing=True)
+            num_epoch= 400,
+            allow_missing=False)
 
     # save reuslt
     # json cannot save CustomOp
@@ -1634,6 +1637,410 @@ def flownet2ss(epoch, ctx, lr):
     # save reuslt
     # json cannot save CustomOp
     net_saved = flownet2ss_symbol.flownet2ss(loss_scale, net_type='flow', is_sparse=False)
+    args, auxs = mod.get_params()
+    model_zoo_path = os.path.join(config.cfg.model.model_zoo, experiment_name)
+    mx.model.save_checkpoint(prefix=model_zoo_path,
+                             epoch=0,
+                             symbol=net_saved,
+                             arg_params=args,
+                             aux_params=auxs)
+    # copy mean file to model zoo directory
+    shutil.copy2(os.path.join(config.cfg.dataset.mean_dir, experiment_name + '_mean.npy'), config.cfg.model.model_zoo)
+    util.generate_deployconfig(experiment_name, 'flow')
+
+@register
+def dispnetCSS_pretrain(epoch, ctx, lr):
+    """
+      train dispnetCSS on flyingthing
+    """
+    # model name
+    experiment_name = 'dispnetCSS_pretrain'
+    data_type = 'stereo'
+
+    # shapes
+    batch_shape = (4, 3, 384, 768)
+    num_iteration = 1200000
+
+    # optimizer params
+    optimizer_type = 'Adam'
+    optimizer_setting = dict(learning_rate=lr,
+                             beta1=0.90,
+                             beta2=0.999,
+                             epsilon=1e-8,
+                             rescale_grad=1.0/batch_shape[0],
+                             wd=0.0004,
+                             lr_scheduler=mx.lr_scheduler.FactorScheduler(step=250000,
+                                                                          factor=0.5,
+                                                                          stop_factor_lr=1E-6))
+
+    # symbol params
+    loss_scale = {}
+    loss_scale['dispnetc'] = {'loss1': 1.00,
+                              'loss2': 0.00,
+                              'loss3': 0.00,
+                              'loss4': 0.00,
+                              'loss5': 0.00,
+                              'loss6': 0.00}
+
+
+    loss_scale['dispnets1'] = {'loss1': 1.00,
+                               'loss2': 0.00,
+                               'loss3': 0.00,
+                               'loss4': 0.00,
+                               'loss5': 0.00,
+                               'loss6': 0.00}
+
+    loss_scale['dispnets2'] = {'loss1': 1.00,
+                               'loss2': 0.00,
+                               'loss3': 0.00,
+                               'loss4': 0.00,
+                               'loss5': 0.00,
+                               'loss6': 0.00}
+
+    net, flownetc_params = dispnet2CSS_symbol.dispnet2CSS(loss_scale, net_type=data_type, is_sparse=False)
+
+    # fix params
+    fix_params = ['upsamplingop_disps1_weight', 'upsamplingop_disps2_weight']
+    # fix_params.extend(flownetc_params)
+
+    # dataset
+    # data_set = dataset.FlyingChairsDataset()
+    data_set = dataset.MultiDataset(data_type=data_type)
+    data_set.register([dataset.SynthesisData(data_type=data_type,
+                                             scene_list=['Driving', 'flyingthing3d', 'Monkaa'],
+                                             rendering_level=['cleanpass']),])
+    #dataset.FlyingChairsDataset()])
+
+    # augmentation setting
+    augment_pipeline = augmentation.augmentation(
+        interpolation_method='bilinear',
+        max_num_tries=10,
+        cropped_height=batch_shape[2],
+        cropped_width=batch_shape[3],
+        data_type=data_type,
+        augment_ratio=1.0,
+        mirror_rate=0.0,
+        flip_rate = 0.0,
+        noise_range = {'method':'uniform', 'exp':False, 'mean':0.03, 'spread':0.03},
+        translate_range={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.4},
+        rotate_range={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.0},
+        zoom_range={'method': 'uniform', 'exp': True, 'mean': 0.2, 'spread': 0.4},
+        squeeze_range={'method': 'uniform', 'exp': True, 'mean': 0, 'spread': 0.3},
+
+        gamma_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+        brightness_range={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.02},
+        contrast_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+        rgb_multiply_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+
+        lmult_pow={'method': 'uniform', 'exp': True, 'mean': -0.2, 'spread': 0.4},
+        lmult_mult={'method': 'uniform', 'exp': True, 'mean': 0.0, 'spread': 0.4},
+        lmult_add={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.03},
+
+        sat_pow={'method': 'uniform', 'exp': True, 'mean': 0, 'spread': 0.4},
+        sat_mult={'method': 'uniform', 'exp': True, 'mean': -0.3, 'spread': 0.5},
+        sat_add={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.03},
+
+        col_pow={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.4},
+        col_mult={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.2},
+        col_add={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.02},
+
+        ladd_pow={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.4},
+        ladd_mult={'method': 'normal', 'exp': True, 'mean': 0.0, 'spread': 0.4},
+        ladd_add={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.04},
+        col_rotate={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 1})
+
+    # metric
+    eval_metric = [metric.EndPointErr()]
+
+    # initializer
+    init = mx.initializer.Xavier(rnd_type='gaussian', factor_type='in', magnitude=8)
+
+    # pretrain model
+    checkpoint_prefix = os.path.join(config.cfg.model.check_point, experiment_name)
+    checkpoint_path = os.path.join(checkpoint_prefix, experiment_name)
+    # create dir
+    if os.path.isdir(checkpoint_prefix) == False:
+        os.makedirs(checkpoint_prefix)
+
+    if epoch == 0:
+        pretrain_model = os.path.join(config.cfg.model.model_zoo, 'dispnet_pretrain')
+        args, auxs = util.load_checkpoint(pretrain_model, 0)
+    else:
+        # previous training checkpoint
+        args, auxs = util.load_checkpoint(checkpoint_path, epoch)
+
+    # infer shapes of outputs
+    shapes = net.infer_shape(img1=batch_shape, img2=batch_shape)
+    tmp = zip(net.list_arguments(), shapes[0])
+    label_shape = [item for item in tmp if 'label' in item[0]]
+
+    # data loader
+    dataiter = dataloader.numpyloader(ctx=ctx,
+                                      experiment_name=experiment_name,
+                                      dataset=data_set,
+                                      augmentation=augment_pipeline,
+                                      batch_shape=batch_shape,
+                                      label_shape=label_shape,
+                                      n_thread=20,
+                                      half_life=100000,
+                                      initial_coeff=0.0,
+                                      final_coeff=1.0,
+                                      interpolation_method='bilinear')
+    # dataiter = LMDB.lmdbloader(#lmdb_path='/home/xudong/FlyingChairs_release_lmdb/',
+    #     #lmdb_path='/data/flyingthing_flow_lmdb/',
+    #     lmdb_path='/home/xudong/FlyingThings3D_release_TRAIN_lmdb/',
+    #     data_type=data_type,
+    #     ctx=ctx,
+    #     experiment_name=experiment_name,
+    #     augmentation=augment_pipeline,
+    #     batch_shape=batch_shape,
+    #     label_shape=label_shape,
+    #     interpolation_method='bilinear',
+    #     use_rnn=False,
+    #     rnn_hidden_shapes=None,
+    #     initial_coeff=0.0,
+    #     final_coeff=1.0,
+    #     half_life=50000,
+    #     chunk_size=3000,
+    #     n_thread=20)
+
+    dataiter = mx.io.PrefetchingIter(dataiter)
+
+    # module
+    mod = mx.module.Module(symbol=net,
+                           data_names=[item[0] for item in dataiter.provide_data],
+                           label_names=[item[0] for item in dataiter.provide_label],
+                           context=ctx,
+                           fixed_param_names=fix_params)
+    # training
+    mod.fit(train_data=dataiter,
+            eval_metric=eval_metric,
+            epoch_end_callback=mx.callback.module_checkpoint(mod,
+                                                             checkpoint_path,
+                                                             period=10,
+                                                             save_optimizer_states=True),
+            batch_end_callback=[mx.callback.Speedometer(batch_shape[0], 20)],
+            kvstore='device',
+            optimizer=optimizer_type,
+            optimizer_params=optimizer_setting,
+            initializer=init,
+            arg_params=args,
+            aux_params=auxs,
+            begin_epoch=epoch,
+            num_epoch= 300,
+            allow_missing=True)
+
+    # save reuslt
+    # json cannot save CustomOp
+    net_saved, dispnetc_params = dispnet2CSS_symbol.dispnet2CSS(loss_scale, net_type=data_type, is_sparse=False)
+    args, auxs = mod.get_params()
+    model_zoo_path = os.path.join(config.cfg.model.model_zoo, experiment_name)
+    mx.model.save_checkpoint(prefix=model_zoo_path,
+                             epoch=0,
+                             symbol=net_saved,
+                             arg_params=args,
+                             aux_params=auxs)
+    # copy mean file to model zoo directory
+    shutil.copy2(os.path.join(config.cfg.dataset.mean_dir, experiment_name + '_mean.npy'), config.cfg.model.model_zoo)
+    util.generate_deployconfig(experiment_name, data_type)
+
+
+@register
+def flownet2CSS_origin(epoch, ctx, lr):
+    """
+      train flownet on flyingchair dataset
+    """
+
+    # model name
+    experiment_name = 'flownet2CSS_origin'
+    data_type = 'flow'
+
+    # shapes
+    batch_shape = (8, 3, 320, 448)
+    num_iteration = 1200000
+
+    # optimizer params
+    optimizer_type = 'Adam'
+    optimizer_setting = dict(learning_rate=lr,
+                             beta1=0.90,
+                             beta2=0.999,
+                             epsilon=1e-8,
+                             rescale_grad=1.0/batch_shape[0],
+                             wd=0.0004,
+                             lr_scheduler=mx.lr_scheduler.FactorScheduler(step=250000,
+                                                                          factor=0.5,
+                                                                          stop_factor_lr=1E-6))
+
+    # symbol params
+    loss_scale = {}
+    loss_scale['flownetc'] = {'loss2': 0.005,
+                              'loss3': 0.01,
+                              'loss4': 0.02,
+                              'loss5': 0.08,
+                              'loss6': 0.32}
+
+
+    loss_scale['flownets1'] = {'loss2': 0.005,
+                               'loss3': 0.01,
+                               'loss4': 0.02,
+                               'loss5': 0.08,
+                               'loss6': 0.32}
+
+    loss_scale['flownets2'] = {'loss2': 0.005,
+                               'loss3': 0.01,
+                               'loss4': 0.02,
+                               'loss5': 0.08,
+                               'loss6': 0.32}
+
+    net, flownetc_params = flownet2CSS_origin_symbol.flownet2CSS(loss_scale, net_type='flow', is_sparse=False)
+
+    # fix params
+    # fix_params = ['upsamplingop_flows1_weight', 'upsamplingop_flows2_weight']
+    fix_params = None
+    # fix_params.extend(flownetc_params)
+
+    # dataset
+    # data_set = dataset.FlyingChairsDataset()
+    data_set = dataset.MultiDataset(data_type='flow')
+    data_set.register([dataset.SynthesisData(data_type='flow',
+                                             scene_list=['flyingthing3d'],
+                                             rendering_level=['cleanpass']),])
+    #dataset.FlyingChairsDataset()])
+
+    # augmentation setting
+    augment_pipeline = augmentation.augmentation(
+        interpolation_method='bilinear',
+        max_num_tries=10,
+        cropped_height=batch_shape[2],
+        cropped_width=batch_shape[3],
+        data_type='flow',
+        augment_ratio=1.0,
+        mirror_rate=0.0,
+        flip_rate = 0.0,
+        noise_range = {'method':'uniform', 'exp':False, 'mean':0.03, 'spread':0.03},
+        translate_range={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.4},
+        rotate_range={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.4},
+        zoom_range={'method': 'uniform', 'exp': True, 'mean': 0.2, 'spread': 0.4},
+        squeeze_range={'method': 'uniform', 'exp': True, 'mean': 0, 'spread': 0.3},
+
+        gamma_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+        brightness_range={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.02},
+        contrast_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+        rgb_multiply_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+
+        lmult_pow={'method': 'uniform', 'exp': True, 'mean': -0.2, 'spread': 0.4},
+        lmult_mult={'method': 'uniform', 'exp': True, 'mean': 0.0, 'spread': 0.4},
+        lmult_add={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.03},
+
+        sat_pow={'method': 'uniform', 'exp': True, 'mean': 0, 'spread': 0.4},
+        sat_mult={'method': 'uniform', 'exp': True, 'mean': -0.3, 'spread': 0.5},
+        sat_add={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.03},
+
+        col_pow={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.4},
+        col_mult={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.2},
+        col_add={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.02},
+
+        ladd_pow={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.4},
+        ladd_mult={'method': 'normal', 'exp': True, 'mean': 0.0, 'spread': 0.4},
+        ladd_add={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.04},
+        col_rotate={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 1})
+
+    # metric
+    eval_metric = [metric.EndPointErr()]
+
+    # initializer
+    init = mx.initializer.Xavier(rnd_type='gaussian', factor_type='in', magnitude=8)
+
+    # pretrain model
+    checkpoint_prefix = os.path.join(config.cfg.model.check_point, experiment_name)
+    checkpoint_path = os.path.join(checkpoint_prefix, experiment_name)
+    # create dir
+    if os.path.isdir(checkpoint_prefix) == False:
+        os.makedirs(checkpoint_prefix)
+
+    if epoch == 0:
+
+        # pretrain_model = os.path.join(config.cfg.model.model_zoo,'flownet_pretrain')
+        # args, auxs = util.load_checkpoint(pretrain_model, 0)
+        args = None
+        auxs = None
+    else:
+        # previous training checkpoint
+        args, auxs = util.load_checkpoint(checkpoint_path, epoch)
+        # args_new = {}
+        # for key in args:
+        #     if key in net.list_arguments():
+        #         if key.startswith('upsampling'):
+        #             continue
+        #         args_new[key] = args[key]
+        #     else:
+        #         print key
+
+        # args = args_new
+
+    # infer shapes of outputs
+    shapes = net.infer_shape(img1=batch_shape, img2=batch_shape)
+    tmp = zip(net.list_arguments(), shapes[0])
+    label_shape = [item for item in tmp if 'label' in item[0]]
+
+    # data loader
+    # dataiter = dataloader.numpyloader(ctx=ctx,
+    #                                   experiment_name=experiment_name,
+    #                                   dataset=data_set,
+    #                                   augmentation=augment_pipeline,
+    #                                   batch_shape=batch_shape,
+    #                                   label_shape=label_shape,
+    #                                   n_thread=15,
+    #                                   half_life=100000,
+    #                                   initial_coeff=0.0,
+    #                                   final_coeff=1.0,
+    #                                   interpolation_method='bilinear')
+    lmdbiter = LMDB.lmdbloader(lmdb_path='/home/xudong/FlyingChairs_release_lmdb/',
+        # lmdb_path='/data/flyingthing_flow_lmdb/',
+        data_type='flow',
+        ctx=ctx,
+        experiment_name=experiment_name,
+        augmentation=augment_pipeline,
+        batch_shape=batch_shape,
+        label_shape=label_shape,
+        interpolation_method='bilinear',
+        use_rnn=False,
+        rnn_hidden_shapes=None,
+        initial_coeff=0.1,
+        final_coeff=1.0,
+        half_life=50000,
+        chunk_size=4096,
+        n_thread=25)
+
+    dataiter = mx.io.PrefetchingIter(lmdbiter)
+
+    # module
+    mod = mx.module.Module(symbol=net,
+                           data_names=[item[0] for item in dataiter.provide_data],
+                           label_names=[item[0] for item in dataiter.provide_label],
+                           context=ctx,
+                           fixed_param_names=fix_params)
+    # training
+    mod.fit(train_data=dataiter,
+            eval_metric=eval_metric,
+            epoch_end_callback=mx.callback.module_checkpoint(mod,
+                                                             checkpoint_path,
+                                                             period=1,
+                                                             save_optimizer_states=True),
+            batch_end_callback=[mx.callback.Speedometer(batch_shape[0], 20)],
+            kvstore='device',
+            optimizer=optimizer_type,
+            optimizer_params=optimizer_setting,
+            initializer=init,
+            arg_params=args,
+            aux_params=auxs,
+            begin_epoch=epoch,
+            num_epoch= 500,
+            allow_missing=True)
+
+    # save reuslt
+    # json cannot save CustomOp
+    net_saved, flownetc_params = flownet2CSS_origin_symbol.flownet2CSS(loss_scale, net_type='flow', is_sparse=False)
     args, auxs = mod.get_params()
     model_zoo_path = os.path.join(config.cfg.model.model_zoo, experiment_name)
     mx.model.save_checkpoint(prefix=model_zoo_path,

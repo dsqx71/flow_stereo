@@ -83,20 +83,21 @@ def flownet_s(data, labels, loss_scale, net_type='flow', is_sparse = False, name
     pr2 = mx.sym.Convolution(iconv2,pad = (1,1),kernel=(3,3),stride = (1,1),num_filter = output_dim,name=name+'pr2')
     prediction['loss2'] = pr2
 
-    # upconv1 = mx.sym.Deconvolution(iconv2,pad=(1,1),kernel=(4,4),stride=(2,2),num_filter = 32,name=name+'upconv1',no_bias=True)
-    # upconv1 = mx.sym.LeakyReLU(data = upconv1,act_type = 'leaky',slope  = 0.1 )
-    # upsample_pr2to1 = mx.sym.Deconvolution(pr2,pad = (1,1),kernel= (4,4),stride=(2,2),num_filter=output_dim,name=name+'upsample_pr2to1',no_bias=True)
-    # concat_tmp5 = mx.sym.Concat(conv1, upconv1, upsample_pr2to1)
-    # iconv1 = mx.sym.Convolution(concat_tmp5,pad=(1,1),kernel = (3,3),stride=(1,1),num_filter=32,name=name+'iconv1')
-    # pr1 = mx.sym.Convolution(iconv1, pad=(1, 1), kernel=(3, 3), stride=(1, 1), num_filter=output_dim,name=name+'pr1')
-    # prediction['loss1'] = pr1
+    upconv1 = mx.sym.Deconvolution(iconv2,pad=(1,1),kernel=(4,4),stride=(2,2),num_filter = 32,name=name+'upconv1',no_bias=True)
+    upconv1 = mx.sym.LeakyReLU(data = upconv1,act_type = 'leaky',slope  = 0.1 )
+    upsample_pr2to1 = mx.sym.Deconvolution(pr2,pad = (1,1),kernel= (4,4),stride=(2,2),num_filter=output_dim,name=name+'upsample_pr2to1',no_bias=True)
+    concat_tmp5 = mx.sym.Concat(conv1, upconv1, upsample_pr2to1)
+    iconv1 = mx.sym.Convolution(concat_tmp5,pad=(1,1),kernel = (3,3),stride=(1,1),num_filter=32,name=name+'iconv1')
+    pr1 = mx.sym.Convolution(iconv1, pad=(1, 1), kernel=(3, 3), stride=(1, 1), num_filter=output_dim,name=name+'pr1')
+    prediction['loss1'] = pr1
 
     # ignore the loss functions with loss scale of zero
     keys = loss_scale.keys()
     keys.sort()
     for key in keys:
-        loss.append(get_loss(prediction[key], labels[key], loss_scale[key], name=key+name,
-                             get_input=False, is_sparse = is_sparse, type=net_type))
+        if loss_scale[key] > 0.0:
+            loss.append(get_loss(prediction[key], labels[key], loss_scale[key], name=key+name,
+                                 get_input=False, is_sparse = is_sparse, type=net_type))
     return prediction, loss
 
 def flownet_c(img1, img2, labels, loss_scale, net_type='flow', is_sparse=False):
@@ -218,22 +219,23 @@ def flownet_c(img1, img2, labels, loss_scale, net_type='flow', is_sparse=False):
     pr2 = mx.sym.Convolution(iconv2, pad=(1, 1), kernel=(3, 3), stride=(1, 1), num_filter=output_dim, name='pr2')
     prediction['loss2'] = pr2
 
-    # upconv1 = mx.sym.Deconvolution(iconv2, pad=(1, 1), kernel=(4, 4), stride=(2, 2), num_filter=32, name='upconv1',
-    #                                no_bias=True)
-    # upconv1 = mx.sym.LeakyReLU(data=upconv1, act_type='leaky', slope=0.1)
-    # upsample_pr2to1 = mx.sym.Deconvolution(pr2, pad=(1, 1), kernel=(4, 4), stride=(2, 2), num_filter=output_dim,
-    #                                        name='upsample_pr2to1', no_bias=True)
-    # concat_tmp5 = mx.sym.Concat(conv1_img1, upconv1, upsample_pr2to1)
-    # iconv1 = mx.sym.Convolution(concat_tmp5, pad=(1, 1), kernel=(3, 3), stride=(1, 1), num_filter=32, name='iconv1')
-    # pr1 = mx.sym.Convolution(iconv1, pad=(1, 1), kernel=(3, 3), stride=(1, 1), num_filter=output_dim, name='pr1')
-    # prediction['loss1'] = pr1
+    upconv1 = mx.sym.Deconvolution(iconv2, pad=(1, 1), kernel=(4, 4), stride=(2, 2), num_filter=32, name='upconv1',
+                                   no_bias=True)
+    upconv1 = mx.sym.LeakyReLU(data=upconv1, act_type='leaky', slope=0.1)
+    upsample_pr2to1 = mx.sym.Deconvolution(pr2, pad=(1, 1), kernel=(4, 4), stride=(2, 2), num_filter=output_dim,
+                                           name='upsample_pr2to1', no_bias=True)
+    concat_tmp5 = mx.sym.Concat(conv1_img1, upconv1, upsample_pr2to1)
+    iconv1 = mx.sym.Convolution(concat_tmp5, pad=(1, 1), kernel=(3, 3), stride=(1, 1), num_filter=32, name='iconv1')
+    pr1 = mx.sym.Convolution(iconv1, pad=(1, 1), kernel=(3, 3), stride=(1, 1), num_filter=output_dim, name='pr1')
+    prediction['loss1'] = pr1
 
     # ignore the loss functions with loss scale of zero
     keys = loss_scale.keys()
     keys.sort()
     for key in keys:
-        loss.append(get_loss(-prediction[key], labels[key], loss_scale[key], name=key,
-                             get_input=False, is_sparse=is_sparse, type=net_type))
+        if loss_scale[key] > 0.0:
+            loss.append(get_loss(-prediction[key], labels[key], loss_scale[key], name=key,
+                                 get_input=False, is_sparse=is_sparse, type=net_type))
     return prediction, loss
 
 
@@ -244,7 +246,7 @@ def flownet2CSS(loss_scale, net_type='flow', is_sparse=False):
     img2 = mx.sym.Variable('img2')
 
     # six loss functions with different output sizes
-    labels = {'loss{}'.format(i): mx.sym.Variable('loss{}_label'.format(i)) for i in range(2, 7)}
+    labels = {'loss{}'.format(i): mx.sym.Variable('loss{}_label'.format(i)) for i in range(1, 7)}
 
     # flownet-c
     flownetc_prediction, flownetc_loss = flownet_c(img1, img2, labels, loss_scale['flownetc'],
@@ -252,13 +254,13 @@ def flownet2CSS(loss_scale, net_type='flow', is_sparse=False):
     flownetc_params = flownetc_loss[0].list_arguments()
 
     # flownet-s1
-    data = warp_flownet(img1, img2, flow=flownetc_prediction['loss2'], name='s1', factor=4)
+    data = warp_flownet(img1, img2, flow=flownetc_prediction['loss1'], name='s1', factor=2)
     flownets1_prediction, flownets1_loss = flownet_s(data, labels, loss_scale['flownets1'],
                                                      net_type=net_type, is_sparse = is_sparse,
                                                      name='flownet-s1')
 
     # flownet-s2
-    data = warp_flownet(img1, img2, flow=flownets1_prediction['loss2'], name='s2', factor=4)
+    data = warp_flownet(img1, img2, flow=flownets1_prediction['loss1'], name='s2', factor=2)
     flownets2_prediction, flownets2_loss = flownet_s(data, labels, loss_scale['flownets2'],
                                                      net_type=net_type, is_sparse=is_sparse,
                                                      name='flownet-s2')

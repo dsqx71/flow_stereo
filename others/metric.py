@@ -13,12 +13,13 @@ class EndPointErr(mx.metric.EvalMetric):
 
     def update(self, gt, pred):
 
-        # visualize.plot(pred[5].asnumpy()[0, 0], 'img')
-        # visualize.plot(pred[0].asnumpy()[0, 0], 'prediction')
-        # visualize.plot(pred[2].asnumpy()[0, 0], 'map')
-        # visualize.plot(pred[3].asnumpy()[0, 0], 'replace')
-        # visualize.plot(pred[4].asnumpy()[0, 0], 'refine')
+        # color1 = visualize.flow2color(pred[0].asnumpy()[0].transpose(1,2,0))
+        # color2 = visualize.flow2color(pred[1].asnumpy()[0].transpose(1,2,0))
+        # color3 = visualize.flow2color(pred[2].asnumpy()[0].transpose(1,2,0))
 
+        # visualize.plot(pred[0].asnumpy()[0,0], 'flownet-s2-prediction')
+        # visualize.plot(color2, 'flownet-s1-prediction')
+        # visualize.plot(color3, 'flownet-c-prediction')
         pred = pred[0].asnumpy()
         gt = gt[0].asnumpy()
 
