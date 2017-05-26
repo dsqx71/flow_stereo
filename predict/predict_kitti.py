@@ -5,6 +5,7 @@ from .pipeline import Pipeline
 from ..others import visualize
 import numpy as np
 import time
+import cv2
 
 if __name__ == '__main__':
     # args
@@ -19,7 +20,7 @@ if __name__ == '__main__':
     # data_type : 'stereo' or 'flow'
     model_type = piper.model_type
     # data = dataset.FlyingChairsDataset()
-    data = dataset.KittiDataset(model_type, '2015', is_train=False)
+    data = dataset.KittiDataset(model_type, '2012', is_train=True)
     # data = dataset.SynthesisData(data_type=model_type,
     #                                  scene_list=['flyingthing3d'],
     #                                  rendering_level=['cleanpass'])
@@ -27,19 +28,23 @@ if __name__ == '__main__':
     error = 0.0
     count = 0.0
     for index, item in enumerate(data.dirs):
-        if index == 104:
-            continue
+        # if index == 104:
+        #     continue
         img1, img2, label, aux = data.get_data(item)
+        original_shape = label.shape
+        # img1 = cv2.resize(img1, (1600, 500))
+        # img2 = cv2.resize(img2, (1600, 500))
         ret = piper.process(img1, img2)
-        # err = np.power(ret-label, 2)
-        # if model_type == 'flow':
-        #     err = err.sum(axis=2)
-        # err = np.power(err, 0.5)
-        # error += err[err==err].sum()
-        # count += (err==err).sum()
-        # print 'index : ', index
-        # print 'EPE : ',(err[err==err].sum()/(err==err).sum())
-        # print 'total EPE : ', error/count
+        # ret = cv2.resize(ret, original_shape[::-1])
+        err = np.power(ret-label, 2)
+        if model_type == 'flow':
+            err = err.sum(axis=2)
+        err = np.power(err, 0.5)
+        error += err[err==err].sum()
+        count += (err==err).sum()
+        print 'index : ', index
+        print 'EPE : ',(err[err==err].sum()/(err==err).sum())
+        print 'total EPE : ', error/count
 
         if args.is_show:
             visualize.plot_pairs(img1, img2, ret, model_type, plot_patch=False)
