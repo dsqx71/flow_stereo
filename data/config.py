@@ -12,6 +12,7 @@ cfg.dataset.kitti_prefix = '/rawdata/stereo/kitti/'
 cfg.dataset.flyingchairs_prefix = '/rawdata/stereo/FlyingChairs_release/data/'#'/data01/FlyingChairs_release/data/'##'/home/xudong/flow_stereo/data/flyingchair/'
 cfg.dataset.SythesisData_prefix = '/rawdata/stereo/'#'/data01/'#'/home/xudong/flow_stereo/data/synthesis/'
 cfg.dataset.tusimple_stereo = '/data01/tusimple_stereo_data/'
+cfg.dataset.sintel_prefix = '/rawdata/stereo/sintel/'
 
 # mean file
 cfg.dataset.mean_dir = '/rawdata/checkpoint_flowstereo/mean/'

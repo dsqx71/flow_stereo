@@ -1,11 +1,16 @@
 import glob
 
+import os
+from PIL import Image
+
 import cv2
 import numpy as np
 
 from .config import cfg
 from . import data_util
 
+TAG_FLOAT = 202021.25
+TAG_CHAR = 'PIEH'
 
 class DataSet(object):
     """The base class of a dataset. The formats and organizations of datasets are often different from each other.
@@ -592,3 +597,74 @@ class TusimpleDataset(DataSet):
         return img1, img2, label, None
 
 
+
+class SintelDataSet(DataSet):
+
+    def __init__(self, data_type, rendering_level, is_training, prefix=cfg.dataset.sintel_prefix):
+
+        self.data_type = data_type
+        self.dirs = []
+        if is_training is False and data_type == 'stereo':
+            raise ValueError("Up till now, official stereo testing set hasn't been released!")
+
+        mode = 'training' if is_training else 'testing'
+        scene = glob.glob(os.path.join(prefix, mode, '{}_left/*'.format(rendering_level)))
+
+        if data_type == 'stereo':
+            for item in scene:
+                img_list = glob.glob(item+'/*')
+                img_list.sort()
+                for img_path in img_list:
+                    suffix = '/'.join(img_path.split('/')[-2:])
+                    img1_dir = os.path.join(prefix, mode, '{}_left/'.format(rendering_level), suffix)
+                    img2_dir = os.path.join(prefix, mode, '{}_right/'.format(rendering_level), suffix)
+                    dis_dir = os.path.join(prefix, mode, 'disparities', suffix)
+                    self.dirs.append([img1_dir, img2_dir, dis_dir])
+
+    def get_data(self, img_dir):
+        img1 = cv2.imread(img_dir[0])
+        img2 = cv2.imread(img_dir[1])
+
+        if self.data_type == 'stereo':
+            label = SintelDataSet.disparity_read(img_dir[2])
+        elif self.data_type == 'flow':
+            label = SintelDataSet.flow_read(img_dir[3])
+
+        return img1, img2, label, None
+
+    @property
+    def shapes(self):
+        return 436, 1024
+
+    @property
+    def __name__(self):
+        return SintelDataSet.__name__
+
+    @staticmethod
+    def flow_read(filename):
+        """ Read optical flow from file, return (U,V) tuple.
+
+        Original code by Deqing Sun, adapted from Daniel Scharstein.
+        """
+        f = open(filename,'rb')
+        check = np.fromfile(f,dtype=np.float32,count=1)[0]
+        assert check == TAG_FLOAT, ' flow_read:: Wrong tag in flow file (should be: {0}, is: {1}). Big-endian machine? '.format(TAG_FLOAT,check)
+        width = np.fromfile(f,dtype=np.int32,count=1)[0]
+        height = np.fromfile(f,dtype=np.int32,count=1)[0]
+        size = width*height
+        assert width > 0 and height > 0 and size > 1 and size < 100000000, ' flow_read:: Wrong input size (width = {0}, height = {1}).'.format(width,height)
+        tmp = np.fromfile(f,dtype=np.float32,count=-1).reshape((height,width*2))
+        u = tmp[:,np.arange(width)*2]
+        v = tmp[:,np.arange(width)*2 + 1]
+        return u,v
+
+    @staticmethod
+    def disparity_read(filename):
+        """ Return disparity read from filename. """
+        f_in = np.array(Image.open(filename))
+        d_r = f_in[:,:,0].astype('float64')
+        d_g = f_in[:,:,1].astype('float64')
+        d_b = f_in[:,:,2].astype('float64')
+
+        depth = d_r * 4 + d_g / (2**6) + d_b / (2**14)
+        return depth

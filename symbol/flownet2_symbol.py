@@ -254,13 +254,13 @@ def flownet2CSS(loss_scale, net_type='flow', is_sparse=False):
     flownetc_params = flownetc_loss[0].list_arguments()
 
     # flownet-s1
-    data = warp_flownet(img1, img2, flow=flownetc_prediction['loss1'], name='s1', factor=2, is_block=True)
+    data = warp_flownet(img1, img2, flow=flownetc_prediction['loss1'], name='s1', factor=2, is_block=True, is_bilinear=True)
     flownets1_prediction, flownets1_loss = flownet_s(data, labels, loss_scale['flownets1'],
                                                      net_type=net_type, is_sparse = is_sparse,
                                                      name='flownet-s1')
 
     # flownet-s2
-    data = warp_flownet(img1, img2, flow=flownets1_prediction['loss1'], name='s2', factor=2, is_block=True)
+    data = warp_flownet(img1, img2, flow=flownets1_prediction['loss1'], name='s2', factor=2, is_block=True, is_bilinear=True)
     flownets2_prediction, flownets2_loss = flownet_s(data, labels, loss_scale['flownets2'],
                                                      net_type=net_type, is_sparse=is_sparse,
                                                      name='flownet-s2')

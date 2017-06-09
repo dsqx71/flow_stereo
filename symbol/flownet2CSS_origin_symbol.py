@@ -6,8 +6,8 @@ def warp_flownet(img1, img2, flow, name, factor=4, is_block=False):
         flow = mx.sym.BlockGrad(data=flow, name = name+'_block')
 
     flow = flow * 20.0
-    flow = mx.sym.UpSampling(data=flow, scale=factor, num_filter=2,
-                             num_args=1, sample_type='bilinear', name='upsamplingop_flow{}'.format(name))
+    flow = mx.sym.UpSampling(arg0=flow, scale=factor, num_filter=2,
+                             num_args=1, sample_type='nearest', name='upsamplingop_flow{}'.format(name))
 
     img2_warped = warp(img=img2, flow=flow, name='flownet-{}-warp'.format(name))
     error = mx.sym.square(img1 - img2_warped)
@@ -260,7 +260,7 @@ def flownet_c(img1, img2, labels, loss_scale, net_type='flow', is_sparse=False):
     keys = loss_scale.keys()
     keys.sort()
     for key in keys:
-        loss.append(get_loss(prediction[key]* 20, labels[key], loss_scale[key], name=key,
+        loss.append(get_loss(prediction[key] * 20, labels[key], loss_scale[key], name=key,
                              get_input=False, is_sparse=is_sparse, type=net_type))
     return prediction, loss
 
@@ -279,20 +279,19 @@ def flownet2CSS(loss_scale, net_type='flow', is_sparse=False):
                                                    net_type=net_type, is_sparse=is_sparse)
     flownetc_params = flownetc_loss[0].list_arguments()
 
-    # # flownet-s1
-    # data = warp_flownet(img1, img2, flow=flownetc_prediction['loss2'], name='s1', is_block=True, factor=4)
-    # flownets1_prediction, flownets1_loss = flownet_s(data, labels, loss_scale['flownets1'],
-    #                                                  net_type=net_type, is_sparse = is_sparse,
-    #                                                  name='net2_')
-    #
-    # # flownet-s2
-    # data = warp_flownet(img1, img2, flow=flownets1_prediction['loss2'], name='s2', is_block=True, factor=4)
-    # flownets2_prediction, flownets2_loss = flownet_s(data, labels, loss_scale['flownets2'],
-    #                                                  net_type=net_type, is_sparse=is_sparse,
-    #                                                  name='net3_')
-    # loss = flownets2_loss
-    # loss.extend(flownets1_loss)
-    # loss.extend(flownetc_loss)
-    net = mx.sym.Group(flownetc_loss)
+    # flownet-s1
+    data = warp_flownet(img1, img2, flow=flownetc_prediction['loss2'], name='s1', is_block=True, factor=4)
+    flownets1_prediction, flownets1_loss = flownet_s(data, labels, loss_scale['flownets1'],
+                                                     net_type=net_type, is_sparse = is_sparse,
+                                                     name='net2_')
 
+    # flownet-s2
+    data = warp_flownet(img1, img2, flow=flownets1_prediction['loss2'], name='s2', is_block=True, factor=4)
+    flownets2_prediction, flownets2_loss = flownet_s(data, labels, loss_scale['flownets2'],
+                                                     net_type=net_type, is_sparse=is_sparse,
+                                                     name='net3_')
+    loss = flownets2_loss
+    loss.extend(flownets1_loss)
+    loss.extend(flownetc_loss)
+    net = mx.sym.Group(loss)
     return net, flownetc_params

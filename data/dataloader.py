@@ -181,7 +181,9 @@ class numpyloader(mx.io.DataIter):
             labels = []
             for item in label_shape:
                 label_resized = resize(label, data_type, interpolation_method, item[1][2], item[1][3])
-                labels.append(label_resized.astype(np.int16))
+                if not np.isnan(label_resized).any():
+                    label_resized = label_resized.astype(np.int16)
+                labels.append(label_resized)
 
             mean1 = img1.reshape(-1, 3).mean(axis=0)
             mean2 = img2.reshape(-1, 3).mean(axis=0)

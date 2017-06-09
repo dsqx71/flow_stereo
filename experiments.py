@@ -970,7 +970,7 @@ def flownet2_pretrain(epoch, ctx, lr):
                                'loss6': 0.00}
 
     loss_scale['flownets2'] = {'loss1': 1.00,
-                               'loss2': 0.10,
+                               'loss2': 0.00,
                                'loss3': 0.00,
                                'loss4': 0.00,
                                'loss5': 0.00,
@@ -979,6 +979,7 @@ def flownet2_pretrain(epoch, ctx, lr):
     net, flownetc_params = flownet2_symbol.flownet2CSS(loss_scale, net_type='flow', is_sparse=False)
 
     # fix params
+    # fix_params = None
     fix_params = ['upsamplingop_flows1_weight', 'upsamplingop_flows2_weight']
     # fix_params.extend(flownetc_params)
 
@@ -1090,7 +1091,7 @@ def flownet2_pretrain(epoch, ctx, lr):
                                initial_coeff=0.1,
                                final_coeff=1.0,
                                half_life=50000,
-                               chunk_size=512,
+                               chunk_size=2048,
                                n_thread=10)
 
     dataiter = mx.io.PrefetchingIter(lmdbiter)
@@ -1116,7 +1117,7 @@ def flownet2_pretrain(epoch, ctx, lr):
             arg_params=args,
             aux_params=auxs,
             begin_epoch=epoch,
-            num_epoch= 430,
+            num_epoch= 400,
             allow_missing=False)
 
     # save reuslt
@@ -1657,8 +1658,10 @@ def dispnetCSS_pretrain(epoch, ctx, lr):
     experiment_name = 'dispnetCSS_pretrain'
     data_type = 'stereo'
 
+    interpolation = 'bilinear'
+
     # shapes
-    batch_shape = (4, 3, 320, 768)
+    batch_shape = (4, 3, 384, 768)
     num_iteration = 1200000
 
     # optimizer params
@@ -1700,23 +1703,30 @@ def dispnetCSS_pretrain(epoch, ctx, lr):
     net, flownetc_params = dispnet2CSS_symbol.dispnet2CSS(loss_scale, net_type=data_type, is_sparse=True)
 
     # fix params
-    fix_params = ['upsamplingop_disps1_weight', 'upsamplingop_disps2_weight']
+    fix_params = None#['upsamplingop_disps1_weight', 'upsamplingop_disps2_weight']
     # fix_params.extend(flownetc_params)
 
     # dataset
     # data_set = dataset.FlyingChairsDataset()
     data_set = dataset.MultiDataset(data_type=data_type)
-    kitti = dataset.KittiDataset(data_type, '2015', is_train=True)
-    kitti.dirs = kitti.dirs[:160]
-    data_set.register([dataset.SynthesisData(data_type=data_type,
+    # kitti = dataset.KittiDataset(data_type, '2015', is_train=True)
+    # kitti.dirs = kitti.dirs[:160]
+    # kitti.dirs.extend(kitti.dirs)
+    # kitti.dirs.extend(kitti.dirs)
+    # kitti.dirs.extend(kitti.dirs)
+    # kitti.dirs.extend(kitti.dirs)
+    # kitti.dirs.extend(kitti.dirs)
+    # kitti.dirs.extend(kitti.dirs)
+    data_set.register([
+                        dataset.SynthesisData(data_type=data_type,
                                              scene_list=['Driving', 'flyingthing3d', 'Monkaa'],
                                              rendering_level=['cleanpass']),
-                       kitti])
+                       ])
     #dataset.FlyingChairsDataset()])
 
     # augmentation setting
     augment_pipeline = augmentation.augmentation(
-        interpolation_method='bilinear',
+        interpolation_method=interpolation,
         max_num_tries=10,
         cropped_height=batch_shape[2],
         cropped_width=batch_shape[3],
@@ -1788,7 +1798,7 @@ def dispnetCSS_pretrain(epoch, ctx, lr):
                                       half_life=100000,
                                       initial_coeff=0.0,
                                       final_coeff=1.0,
-                                      interpolation_method='bilinear')
+                                      interpolation_method=interpolation)
     # dataiter = LMDB.lmdbloader(#lmdb_path='/home/xudong/FlyingChairs_release_lmdb/',
     #     #lmdb_path='/data/flyingthing_flow_lmdb/',
     #     lmdb_path='/home/xudong/FlyingThings3D_release_TRAIN_lmdb/',
@@ -1820,7 +1830,7 @@ def dispnetCSS_pretrain(epoch, ctx, lr):
             eval_metric=eval_metric,
             epoch_end_callback=mx.callback.module_checkpoint(mod,
                                                              checkpoint_path,
-                                                             period=10,
+                                                             period=1,
                                                              save_optimizer_states=True),
             batch_end_callback=[mx.callback.Speedometer(batch_shape[0], 20)],
             kvstore='device',
@@ -1830,7 +1840,7 @@ def dispnetCSS_pretrain(epoch, ctx, lr):
             arg_params=args,
             aux_params=auxs,
             begin_epoch=epoch,
-            num_epoch= 300,
+            num_epoch= 650,
             allow_missing=True)
 
     # save reuslt
@@ -1859,7 +1869,7 @@ def flownet2CSS_origin(epoch, ctx, lr):
     data_type = 'flow'
 
     # shapes
-    batch_shape = (8, 3, 320, 448)
+    batch_shape = (4, 3, 384, 768)
     num_iteration = 1200000
 
     # optimizer params
@@ -1877,30 +1887,32 @@ def flownet2CSS_origin(epoch, ctx, lr):
     # symbol params
     loss_scale = {}
     loss_scale['flownetc'] = {'loss2': 1.00,
-                              'loss3': 0.16,
-                              'loss4': 0.04,
-                              'loss5': 0.02,
-                              'loss6': 0.01}
+                              'loss3': 0.00,
+                              'loss4': 0.00,
+                              'loss5': 0.00,
+                              'loss6': 0.00}
 
 
-    loss_scale['flownets1'] = {'loss2': 0.005,
-                               'loss3': 0.01,
-                               'loss4': 0.02,
-                               'loss5': 0.08,
-                               'loss6': 0.32}
+    loss_scale['flownets1'] = {'loss2': 1.00,
+                               'loss3': 0.00,
+                               'loss4': 0.00,
+                               'loss5': 0.00,
+                               'loss6': 0.00}
 
-    loss_scale['flownets2'] = {'loss2': 0.005,
-                               'loss3': 0.01,
-                               'loss4': 0.02,
-                               'loss5': 0.08,
-                               'loss6': 0.32}
+    loss_scale['flownets2'] = {'loss2': 1.00,
+                               'loss3': 0.00,
+                               'loss4': 0.00,
+                               'loss5': 0.00,
+                               'loss6': 0.00}
 
     net, flownetc_params = flownet2CSS_origin_symbol.flownet2CSS(loss_scale, net_type='flow', is_sparse=False)
 
     # fix params
     # fix_params = ['upsamplingop_flows1_weight', 'upsamplingop_flows2_weight']
     fix_params = None
+    # fix_params = ['upsamplingop_flows1_weight']
     # fix_params.extend(flownetc_params)
+    # fix_params.extend([item for item in net.list_arguments() if 's1' in item])
 
     # dataset
     # data_set = dataset.FlyingChairsDataset()
@@ -2013,7 +2025,7 @@ def flownet2CSS_origin(epoch, ctx, lr):
         final_coeff=1.0,
         half_life=50000,
         chunk_size=4096,
-        n_thread=25)
+        n_thread=20)
 
     dataiter = mx.io.PrefetchingIter(lmdbiter)
 
@@ -2028,7 +2040,7 @@ def flownet2CSS_origin(epoch, ctx, lr):
             eval_metric=eval_metric,
             epoch_end_callback=mx.callback.module_checkpoint(mod,
                                                              checkpoint_path,
-                                                             period=1,
+                                                             period=10,
                                                              save_optimizer_states=True),
             batch_end_callback=[mx.callback.Speedometer(batch_shape[0], 20)],
             kvstore='device',
@@ -2038,7 +2050,7 @@ def flownet2CSS_origin(epoch, ctx, lr):
             arg_params=args,
             aux_params=auxs,
             begin_epoch=epoch,
-            num_epoch= 530,
+            num_epoch= 1550,
             allow_missing=True)
 
     # save reuslt

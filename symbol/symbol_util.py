@@ -221,13 +221,17 @@ def get_conv_bn(name, data, num_filter, kernel, stride, pad, with_relu, bn_momen
 
     return mx.sym.LeakyReLU(data=bn, act_type='leaky', slope=0.1) if with_relu else bn
 
-def warp_flownet(img1, img2, flow, name, factor=2, is_block=False):
+def warp_flownet(img1, img2, flow, name, factor=2, is_block=False, is_bilinear=False):
 
     if is_block:
         flow = mx.sym.BlockGrad(data=flow, name = name+'_block')
 
-    flow = mx.sym.UpSampling(data=flow, scale=factor, num_filter=2,
-                             num_args=1, sample_type='bilinear', name='upsamplingop_flow{}'.format(name))
+    if is_bilinear:
+        flow = mx.sym.UpSampling(data=flow, scale=factor, num_filter=2,
+                                 num_args=1, sample_type='bilinear', name='upsamplingop_flow{}'.format(name))
+    else:
+        flow = mx.sym.UpSampling(arg0=flow, scale=factor, num_filter=2,
+                                 num_args=1, sample_type='nearest', name='upsamplingop_flow{}'.format(name))
 
     img2_warped = warp(img=img2, flow=flow, name='flownet-{}-warp'.format(name))
     error = mx.sym.abs(img2_warped - img1)
@@ -237,8 +241,8 @@ def warp_flownet(img1, img2, flow, name, factor=2, is_block=False):
 
 def warp_dispnet(img1, img2, disp, name, factor=2):
 
-    disp = mx.sym.UpSampling(data=disp, scale=factor, num_filter=1,
-                             num_args=1, sample_type='bilinear',
+    disp = mx.sym.UpSampling(arg0=disp, scale=factor, num_filter=1,
+                             num_args=1, sample_type='nearest',
                              name='upsamplingop_disp{}'.format(name))
     disp = mx.sym.BlockGrad(data=disp, name='blockgrad_disp{}'.format(name))
     flow = mx.sym.concat(disp, disp*0)
@@ -247,5 +251,6 @@ def warp_dispnet(img1, img2, disp, name, factor=2):
     error = mx.sym.sum(error, axis=1, keepdims = True)
     error = mx.sym.sqrt(error)
     data = mx.sym.Concat(img1, img2, img2_warped, disp, error)
+
     return data
 
