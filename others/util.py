@@ -80,18 +80,27 @@ def get_idx2name(net):
         idx2name[i] = name
     return idx2name
 
-def generate_deployconfig(experiment_name, data_type):
+def generate_deployconfig(experiment_name, data_type, type='end2end'):
     """
     Gernerate deploy config for prediction pipeline
     """
     file_path = os.path.join(config.cfg.model.model_zoo, experiment_name+'.config')
-    with open(file_path, 'w') as f:
-        f.write('[model]\n')
-        f.write('model_type = {}\n'.format(data_type))
-        f.write('model_prefix = {}\n'.format(experiment_name))
-        f.write('ctx = 0\n')
-        f.write('need_preprocess = 1\n')
-
+    if type == 'end2end':
+        with open(file_path, 'w') as f:
+            f.write('[model]\n')
+            f.write('model_type = {}\n'.format(data_type))
+            f.write('model_prefix = {}\n'.format(experiment_name))
+            f.write('ctx = 0\n')
+            f.write('need_preprocess = 1\n')
+    elif type == 'patch_match':
+        with open(file_path, 'w') as f:
+            f.write('[model]\n')
+            f.write('model_type = {}\n'.format(data_type))
+            f.write('model_prefix = {}\n'.format(experiment_name))
+            f.write('ctx = 0\n')
+            f.write('need_preprocess = 1\n')
+            f.write('max_displacement = 227\n')
+            f.write('batchsize = 128\n')
 
 def update_arg_params(arg_params, low_level_name, high_level_name):
 

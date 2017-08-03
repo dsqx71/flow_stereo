@@ -10,8 +10,9 @@ import os
 import mxnet as mx
 from symbol import dispnet_symbol, resnet_symbol, spynet_symbol, \
                    flownet2_symbol, DRR_symbol, flownets_half_symbol, \
-                   flownet2ss_symbol, dispnet2CSS_symbol, flownet2CSS_origin_symbol
-from data import dataset, dataloader, augmentation, config, LMDB
+                   flownet2ss_symbol, dispnet2CSS_symbol, flownet2CSS_origin_symbol, \
+                   dispnet2CSS_exp_symbol, match_net_symbol, TripleTower_symbol, siamese_symbol
+from data import dataset, dataloader, augmentation, config, LMDB, patchiter
 from others import util, metric
 
 experiments = []
@@ -102,7 +103,7 @@ def dispnet_finetune(epoch, ctx, lr):
 
     # load pretrain model
     checkpoint_prefix = os.path.join(config.cfg.model.check_point, experiment_name)
-
+    checkpoint_path = os.path.join(checkpoint_prefix, experiment_name)
     # create dir
     if os.path.isdir(checkpoint_prefix) == False:
         os.makedirs(checkpoint_prefix)
@@ -142,7 +143,7 @@ def dispnet_finetune(epoch, ctx, lr):
     mod.fit(train_data=dataiter,
             eval_metric=eval_metric,
             epoch_end_callback=mx.callback.module_checkpoint(mod,
-                                                             checkpoint_prefix+experiment_name,
+                                                             checkpoint_path,
                                                              period=50,
                                                              save_optimizer_states=True),
             batch_end_callback=[mx.callback.Speedometer(batch_shape[0], 10)],
@@ -175,9 +176,10 @@ def dispnet_pretrain(epoch, ctx, lr):
     """
     # model name
     experiment_name = 'dispnet_pretrain'
-
+    interpolation = 'bilinear'
+    data_type = 'stereo'
     # shapes
-    batch_shape = (4, 3, 384, 768)
+    batch_shape = (8, 3, 384, 768)
     num_iteration = 1400000
 
     # optimizer params
@@ -209,40 +211,41 @@ def dispnet_pretrain(epoch, ctx, lr):
 
     # augmentation setting
     augment_pipeline = augmentation.augmentation(
-        interpolation_method='bilinear',
+        interpolation_method=interpolation,
         max_num_tries=10,
-        cropped_height=384,
-        cropped_width=768,
-        data_type='stereo',
-        augment_ratio=0.9,
-        noise_std=0.05,
+        cropped_height=batch_shape[2],
+        cropped_width=batch_shape[3],
+        data_type=data_type,
+        augment_ratio=1.0,
         mirror_rate=0.0,
-        flip_rate=0.1,
-        rotate_range={'method': 'uniform', 'low': 0, 'high': 0},
-        translate_range={'method': 'normal', 'mean': 0.0, 'scale': 0.4},
-        zoom_range={'method': 'normal', 'mean': 1.0, 'scale': 0.2},
-        squeeze_range={'method': 'normal', 'mean': 1.0, 'scale': 0.2},
-        gamma_range={'method': 'normal', 'mean': 1.0, 'scale': 0.03},
-        brightness_range={'method': 'normal', 'mean': 0.0, 'scale': 0.06},
-        contrast_range={'method': 'normal', 'mean': 1.0, 'scale': 0.06},
-        rgb_multiply_range={'method': 'normal', 'mean': 1.0, 'scale': 0.06},
+        flip_rate = 0.0,
+        noise_range = {'method':'uniform', 'exp':False, 'mean':0.03, 'spread':0.03},
+        translate_range={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.4},
+        rotate_range={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.0},
+        zoom_range={'method': 'uniform', 'exp': True, 'mean': 0.2, 'spread': 0.4},
+        squeeze_range={'method': 'uniform', 'exp': True, 'mean': 0, 'spread': 0.3},
 
-        lmult_pow={'method': 'normal', 'mean': 1.00, 'scale': 0.6},
-        lmult_mult={'method': 'normal', 'mean': 1.00, 'scale': 0.6},
-        lmult_add={'method': 'normal', 'mean': 0.00, 'scale': 0.06},
+        gamma_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+        brightness_range={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.02},
+        contrast_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+        rgb_multiply_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
 
-        sat_pow={'method': 'normal', 'mean': 1.00, 'scale': 0.6},
-        sat_mult={'method': 'normal', 'mean': 1.00, 'scale': 0.6},
-        sat_add={'method': 'normal', 'mean': 0.00, 'scale': 0.06},
+        lmult_pow={'method': 'uniform', 'exp': True, 'mean': -0.2, 'spread': 0.4},
+        lmult_mult={'method': 'uniform', 'exp': True, 'mean': 0.0, 'spread': 0.4},
+        lmult_add={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.03},
 
-        col_pow={'method': 'normal', 'mean': 1.00, 'scale': 0.6},
-        col_mult={'method': 'normal', 'mean': 1.00, 'scale': 0.6},
-        col_add={'method': 'normal', 'mean': 0.00, 'scale': 0.06},
+        sat_pow={'method': 'uniform', 'exp': True, 'mean': 0, 'spread': 0.4},
+        sat_mult={'method': 'uniform', 'exp': True, 'mean': -0.3, 'spread': 0.5},
+        sat_add={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.03},
 
-        ladd_pow={'method': 'normal', 'mean': 1.00, 'scale': 0.6},
-        ladd_mult={'method': 'normal', 'mean': 1.00, 'scale': 0.6},
-        ladd_add={'method': 'normal', 'mean': 0.00, 'scale': 0.06},
-        col_rotate={'method': 'normal', 'mean': 0, 'scale': 6})
+        col_pow={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.4},
+        col_mult={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.2},
+        col_add={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.02},
+
+        ladd_pow={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.4},
+        ladd_mult={'method': 'normal', 'exp': True, 'mean': 0.0, 'spread': 0.4},
+        ladd_add={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.04},
+        col_rotate={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 1})
 
     # metric
     eval_metric = [metric.EndPointErr()]
@@ -270,16 +273,33 @@ def dispnet_pretrain(epoch, ctx, lr):
     label_shape = [item for item in tmp if 'label' in item[0]]
 
     # training data loader
-    dataiter = dataloader.numpyloader(experiment_name=experiment_name,
-                                      dataset=data_set,
-                                      augmentation=augment_pipeline,
-                                      batch_shape=batch_shape,
-                                      label_shape=label_shape,
-                                      n_thread=6,
-                                      half_life=200000,
-                                      initial_coeff=0.5,
-                                      final_coeff=1.0,
-                                      interpolation_method='bilinear')
+    # dataiter = dataloader.numpyloader(experiment_name=experiment_name,
+    #                                   dataset=data_set,
+    #                                   augmentation=augment_pipeline,
+    #                                   batch_shape=batch_shape,
+    #                                   label_shape=label_shape,
+    #                                   n_thread=6,
+    #                                   half_life=200000,
+    #                                   initial_coeff=0.5,
+    #                                   final_coeff=1.0,
+    #                                   interpolation_method='bilinear')
+    dataiter = LMDB.lmdbloader(lmdb_path='/home/xudong/FlyingThings3D_release_TRAIN_lmdb/',
+                               data_type=data_type,
+                               ctx=ctx,
+                               experiment_name=experiment_name,
+                               augmentation=augment_pipeline,
+                               batch_shape=batch_shape,
+                               label_shape=label_shape,
+                               interpolation_method='bilinear',
+                               use_rnn=False,
+                               rnn_hidden_shapes=None,
+                               initial_coeff=0.0,
+                               final_coeff=1.0,
+                               half_life=50000,
+                               chunk_size=4000,
+                               n_thread=20)
+
+    dataiter = mx.io.PrefetchingIter(dataiter)
 
     # module
     mod = mx.module.Module(symbol=net,
@@ -292,7 +312,7 @@ def dispnet_pretrain(epoch, ctx, lr):
             eval_metric=eval_metric,
             epoch_end_callback=mx.callback.module_checkpoint(mod,
                                                              checkpoint_path,
-                                                             period=10,
+                                                             period=1,
                                                              save_optimizer_states=True),
             batch_end_callback=[mx.callback.Speedometer(batch_shape[0], 20)],
             kvstore='device',
@@ -307,7 +327,7 @@ def dispnet_pretrain(epoch, ctx, lr):
 
     # save reuslt
     # cannot save CustomOp into json file
-    net_saved = dispnet_symbol.dispnet(loss_scale=loss_scale, net_type='stereo', is_sparse=False)
+    net_saved = dispnet_symbol.dispnet(loss_scale=loss_scale, net_type=data_type, is_sparse=False)
     args, auxs = mod.get_params()
     model_zoo_path = os.path.join(config.cfg.model.model_zoo, experiment_name)
     mx.model.save_checkpoint(prefix=model_zoo_path,
@@ -1092,7 +1112,7 @@ def flownet2_pretrain(epoch, ctx, lr):
                                final_coeff=1.0,
                                half_life=50000,
                                chunk_size=2048,
-                               n_thread=10)
+                               n_thread=16)
 
     dataiter = mx.io.PrefetchingIter(lmdbiter)
 
@@ -1117,7 +1137,7 @@ def flownet2_pretrain(epoch, ctx, lr):
             arg_params=args,
             aux_params=auxs,
             begin_epoch=epoch,
-            num_epoch= 400,
+            num_epoch= 401,
             allow_missing=False)
 
     # save reuslt
@@ -1720,7 +1740,7 @@ def dispnetCSS_pretrain(epoch, ctx, lr):
     data_set.register([
                         dataset.SynthesisData(data_type=data_type,
                                              scene_list=['Driving', 'flyingthing3d', 'Monkaa'],
-                                             rendering_level=['cleanpass']),
+                                             rendering_level=['cleanpass','finalpass']),
                        ])
     #dataset.FlyingChairsDataset()])
 
@@ -1840,7 +1860,7 @@ def dispnetCSS_pretrain(epoch, ctx, lr):
             arg_params=args,
             aux_params=auxs,
             begin_epoch=epoch,
-            num_epoch= 650,
+            num_epoch= 700,
             allow_missing=True)
 
     # save reuslt
@@ -2025,7 +2045,7 @@ def flownet2CSS_origin(epoch, ctx, lr):
         final_coeff=1.0,
         half_life=50000,
         chunk_size=4096,
-        n_thread=20)
+        n_thread=2)
 
     dataiter = mx.io.PrefetchingIter(lmdbiter)
 
@@ -2066,3 +2086,320 @@ def flownet2CSS_origin(epoch, ctx, lr):
     # copy mean file to model zoo directory
     shutil.copy2(os.path.join(config.cfg.dataset.mean_dir, experiment_name + '_mean.npy'), config.cfg.model.model_zoo)
     util.generate_deployconfig(experiment_name, 'flow')
+
+@register
+def mc_cnn(epoch, ctx, lr):
+
+    from symbol import mc_cnn_symbol
+
+    # model name
+    experiment_name = 'mc_cnn'
+    data_type = 'stereo'
+    interpolation = 'nearest'
+
+    # shapes
+    batch_size = 128
+
+    # optimizer params
+    optimizer_type = 'sgd'
+    optimizer_setting = dict(learning_rate=lr,
+                             momentum=0.9,
+                             rescale_grad=1.0/batch_size,
+                             lr_scheduler=mx.lr_scheduler.FactorScheduler(step=5000000,
+                                                                          factor=0.5,
+                                                                          stop_factor_lr=1E-6))
+    # optimizer_type = 'Adam'
+    # optimizer_setting = dict(learning_rate=lr,
+    #                          beta1=0.90,
+    #                          beta2=0.999,
+    #                          epsilon=1e-8,
+    #                          rescale_grad=1.0/batch_size,
+    #                          wd=0.0001,
+    #                          lr_scheduler=mx.lr_scheduler.FactorScheduler(step=100000,
+    #                                                                       factor=0.5,
+    #                                                                       stop_factor_lr=1E-6))
+
+    net = mc_cnn_symbol.get_network(network_type='train')
+
+    # dataset
+    data_set = dataset.KittiDataset(data_type, '2015', is_train=True)
+
+    # augmentation setting
+    augment_pipeline = augmentation.augmentation(
+        interpolation_method=interpolation,
+        max_num_tries=10,
+        cropped_height=320,
+        cropped_width=768,
+        data_type=data_type,
+        augment_ratio=1.0,
+        mirror_rate=0.0,
+        flip_rate = 0.0,
+        noise_range = {'method':'uniform', 'exp':False, 'mean':0.03, 'spread':0.03},
+        translate_range={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.4},
+        rotate_range={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.0},
+        zoom_range={'method': 'uniform', 'exp': True, 'mean': 0.2, 'spread': 0.4},
+        squeeze_range={'method': 'uniform', 'exp': True, 'mean': 0, 'spread': 0.3},
+
+        gamma_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+        brightness_range={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.02},
+        contrast_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+        rgb_multiply_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+
+        lmult_pow={'method': 'uniform', 'exp': True, 'mean': -0.2, 'spread': 0.4},
+        lmult_mult={'method': 'uniform', 'exp': True, 'mean': 0.0, 'spread': 0.4},
+        lmult_add={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.03},
+
+        sat_pow={'method': 'uniform', 'exp': True, 'mean': 0, 'spread': 0.4},
+        sat_mult={'method': 'uniform', 'exp': True, 'mean': -0.3, 'spread': 0.5},
+        sat_add={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.03},
+
+        col_pow={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.4},
+        col_mult={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.2},
+        col_add={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.02},
+
+        ladd_pow={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.4},
+        ladd_mult={'method': 'normal', 'exp': True, 'mean': 0.0, 'spread': 0.4},
+        ladd_add={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.04},
+        col_rotate={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 1})
+
+    # metric
+    eval_metric = [mx.metric.MAE()]
+
+    # initializer
+    init = mx.initializer.Xavier(rnd_type='gaussian', factor_type='in', magnitude=0.3)
+
+    # pretrain model
+    checkpoint_prefix = os.path.join(config.cfg.model.check_point, experiment_name)
+    checkpoint_path = os.path.join(checkpoint_prefix, experiment_name)
+    # create dir
+    if os.path.isdir(checkpoint_prefix) == False:
+        os.makedirs(checkpoint_prefix)
+
+    if epoch == 0:
+        args = None
+        auxs = None
+    else:
+        # previous training checkpoint
+        args, auxs = util.load_checkpoint(checkpoint_path, epoch)
+
+    dataiter = patchiter.patchiter(ctx=[mx.gpu(0)],
+                                   experiment_name=experiment_name,
+                                   dataset=data_set,
+                                   img_augmentation=augment_pipeline,
+                                   patch_augmentation=augmentation.patch_augmentation(),
+                                   batch_size=batch_size,
+                                   low=5,
+                                   high=500,
+                                   n_thread=20,
+                                   be_shuffle=True)
+
+    dataiter = mx.io.PrefetchingIter(dataiter)
+
+    # module
+    mod = mx.module.Module(symbol=net,
+                           data_names=[item[0] for item in dataiter.provide_data],
+                           label_names=[item[0] for item in dataiter.provide_label],
+                           context=ctx)
+    # training
+    mod.fit(train_data=dataiter,
+            eval_metric=eval_metric,
+            epoch_end_callback=mx.callback.module_checkpoint(mod,
+                                                             checkpoint_path,
+                                                             period=1,
+                                                             save_optimizer_states=True),
+            batch_end_callback=[mx.callback.Speedometer(batch_size, 20)],
+            kvstore='device',
+            optimizer=optimizer_type,
+            optimizer_params=optimizer_setting,
+            initializer=init,
+            arg_params=args,
+            aux_params=auxs,
+            begin_epoch=epoch,
+            num_epoch=20,
+            allow_missing=True)
+
+    # save reuslt
+    # json cannot save CustomOp
+    net_saved = net
+    args, auxs = mod.get_params()
+    model_zoo_path = os.path.join(config.cfg.model.model_zoo, experiment_name)
+    mx.model.save_checkpoint(prefix=model_zoo_path,
+                             epoch=0,
+                             symbol=net_saved,
+                             arg_params=args,
+                             aux_params=auxs)
+    # copy mean file to model zoo directory
+    # shutil.copy2(os.path.join(config.cfg.dataset.mean_dir, experiment_name + '_mean.npy'), config.cfg.model.model_zoo)
+    util.generate_deployconfig(experiment_name, data_type, type='patch_match')
+
+
+@register
+def dispnet_confidence(epoch, ctx, lr):
+
+    from symbol import dispnet_confidence_symbol
+    # model name
+    experiment_name = 'dispnet_confidence'
+    pretrain_model = 'dispnet_pretrain'
+    interpolation = 'nearest'
+    data_type = 'stereo'
+    # shapes
+    batch_shape = (4, 3, 320, 768)
+    num_iteration = 80000
+
+    # optimizer params
+    optimizer_type = 'Adam'
+    optimizer_setting = dict(learning_rate = lr,
+                             beta1 = 0.90,
+                             beta2 = 0.999,
+                             epsilon = 1e-4,
+                             wd = 0.0000)
+    # symbol params
+    loss_scale = {'loss1': 1.00,
+                  'loss2': 0.00,
+                  'loss3': 0.00,
+                  'loss4': 0.00,
+                  'loss5': 0.00,
+                  'loss6': 0.00}
+
+    net = dispnet_confidence_symbol.dispnet(loss_scale=loss_scale, net_type='stereo', is_sparse=True)
+
+    fix_params = [item for item in net.list_arguments() if 'upsamplingop' in item]
+    fix_params.extend([item for item in net.list_arguments() if 'detect' not in item])
+    # dataset
+    # data_set = dataset.KittiDataset('stereo', '2015', is_train=True)
+    # data_set = dataset.SintelDataSet(data_type='stereo', rendering_level='final', is_training=True)
+    # data_set = dataset.SynthesisData(data_type='stereo',
+    #                                  scene_list=['flyingthing3d'],
+    #                                  rendering_level=['cleanpass'])
+    # data_set.dirs = data_set.dirs[:1000]
+    # augmentation setting
+    augment_pipeline = augmentation.augmentation(
+        interpolation_method=interpolation,
+        max_num_tries=10,
+        cropped_height=batch_shape[2],
+        cropped_width=batch_shape[3],
+        data_type=data_type,
+        augment_ratio=1.0,
+        mirror_rate=0.0,
+        flip_rate = 0.0,
+        noise_range = {'method':'uniform', 'exp':False, 'mean':0.03, 'spread':0.03},
+        translate_range={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.4},
+        rotate_range={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.0},
+        zoom_range={'method': 'uniform', 'exp': True, 'mean': 0.2, 'spread': 0.4},
+        squeeze_range={'method': 'uniform', 'exp': True, 'mean': 0, 'spread': 0.3},
+
+        gamma_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+        brightness_range={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.02},
+        contrast_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+        rgb_multiply_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+
+        lmult_pow={'method': 'uniform', 'exp': True, 'mean': -0.2, 'spread': 0.4},
+        lmult_mult={'method': 'uniform', 'exp': True, 'mean': 0.0, 'spread': 0.4},
+        lmult_add={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.03},
+
+        sat_pow={'method': 'uniform', 'exp': True, 'mean': 0, 'spread': 0.4},
+        sat_mult={'method': 'uniform', 'exp': True, 'mean': -0.3, 'spread': 0.5},
+        sat_add={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.03},
+
+        col_pow={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.4},
+        col_mult={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.2},
+        col_add={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.02},
+
+        ladd_pow={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.4},
+        ladd_mult={'method': 'normal', 'exp': True, 'mean': 0.0, 'spread': 0.4},
+        ladd_add={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.04},
+        col_rotate={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 1})
+
+    # metric
+    eval_metric = [metric.D1all(), metric.EndPointErr(), metric.Confidence_loss()]
+
+    # initializer
+    init = mx.initializer.Xavier(rnd_type='gaussian', factor_type='in', magnitude=0.7)
+
+    # load pretrain model
+    checkpoint_prefix = os.path.join(config.cfg.model.check_point, experiment_name)
+    checkpoint_path = os.path.join(checkpoint_prefix, experiment_name)
+    # create dir
+    if os.path.isdir(checkpoint_prefix) == False:
+        os.makedirs(checkpoint_prefix)
+
+    if epoch == 0:
+        # caffe pretrain model
+        pretrain_model_path = os.path.join(config.cfg.model.model_zoo, pretrain_model)
+        args, auxs = util.load_checkpoint(pretrain_model_path, 0)
+    else:
+        # previous training checkpoint
+        checkpoint_path = os.path.join(checkpoint_prefix, experiment_name)
+        args, auxs = util.load_checkpoint(checkpoint_path, epoch)
+
+    # infer shapes of outputs
+    shapes = net.infer_shape(img1=batch_shape, img2=batch_shape)
+    tmp = zip(net.list_arguments(), shapes[0])
+    label_shape = [item for item in tmp if 'label' in item[0]]
+    dataiter = dataloader.numpyloader(ctx=ctx,
+                                      experiment_name=experiment_name,
+                                      dataset=data_set,
+                                      augmentation=augment_pipeline,
+                                      batch_shape=batch_shape,
+                                      label_shape=label_shape,
+                                      n_thread=20,
+                                      half_life=100000,
+                                      initial_coeff=0.0,
+                                      final_coeff=1.0,
+                                      interpolation_method=interpolation)
+
+    # data loader
+    # dataiter = LMDB.lmdbloader(#lmdb_path='/home/xudong/FlyingChairs_release_lmdb/',
+    #     #lmdb_path='/data/flyingthing_flow_lmdb/',
+    #     lmdb_path='/home/xudong/FlyingThings3D_release_TRAIN_lmdb/',
+    #     data_type=data_type,
+    #     ctx=ctx,
+    #     experiment_name=experiment_name,
+    #     augmentation=augment_pipeline,
+    #     batch_shape=batch_shape,
+    #     label_shape=label_shape,
+    #     interpolation_method=interpolation,
+    #     use_rnn=False,
+    #     rnn_hidden_shapes=None,
+    #     initial_coeff=0.0,
+    #     final_coeff=1.0,
+    #     half_life=50000,
+    #     chunk_size=4000,
+    #     n_thread=20)
+
+    # module
+    mod = mx.module.Module(symbol=net,
+                           data_names=[item[0] for item in dataiter.provide_data],
+                           label_names=[item[0] for item in dataiter.provide_label],
+                           context=ctx,
+                           fixed_param_names=fix_params)
+    # training
+    mod.fit(train_data=dataiter,
+            eval_metric=eval_metric,
+            epoch_end_callback=mx.callback.module_checkpoint(mod,
+                                                             checkpoint_path,
+                                                             period=1,
+                                                             save_optimizer_states=True),
+            batch_end_callback=[mx.callback.Speedometer(batch_shape[0], 10)],
+            kvstore='device',
+            optimizer=optimizer_type,
+            optimizer_params= optimizer_setting,
+            initializer=init,
+            arg_params=args,
+            aux_params=auxs,
+            begin_epoch=epoch,
+            num_epoch=11,
+            allow_missing=True)
+
+    # save reuslt
+    # json cannot save CustomOp
+    net_saved = net
+    args, auxs = mod.get_params()
+    model_zoo_path = os.path.join(config.cfg.model.model_zoo, experiment_name)
+    mx.model.save_checkpoint(prefix=model_zoo_path,
+                             epoch=1,
+                             symbol=net_saved,
+                             arg_params=args,
+                             aux_params=auxs)
+    # copy mean file to model zoo directory
+    shutil.copy2(os.path.join(config.cfg.dataset.mean_dir, experiment_name + '_mean.npy'), config.cfg.model.model_zoo)

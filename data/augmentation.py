@@ -474,4 +474,41 @@ class augmentation(object):
         return img1, img2, label
 
 
+class patch_augmentation(object):
+
+    def __init__(self):
+        '''
+                 rotate,
+                 scale,
+                 horizontal_scale,
+                 horizontal_shear,
+                 brightness,
+                 contrast,
+                 vertical_disparity,
+                 rotate_diff,
+                 horizontal_scale_diff,
+                 horizontal_shear_diff,
+                 brightness_diff,
+                 contrast_diff):
+        '''
+        pass
+        # self.rotate = rotate
+        # self.scale = scale
+        # self.horizontal_scale = horizontal_scale
+        # self.horizontal_shear = horizontal_shear
+        # self.brightness = brightness
+        # self.contrast = contrast
+        # self.vertical_disparity = vertical_disparity
+        # self.rotate_diff = rotate_diff
+        # self.horizontal_scale_diff = horizontal_scale_diff
+        # self.horizontal_shear_diff = horizontal_shear_diff
+        # self.brightness_diff = brightness_diff
+        # self.contrast_diff = contrast_diff
+
+
+    def __call__(self, *args, **kwargs):
+        ret = []
+        for idx in range(len(args)):
+            ret.append(args[idx].astype(np.float16))
+        return args
 

@@ -1,7 +1,8 @@
 import numpy as np
 import cv2
-import matplotlib.pyplot as plt
+import matplotlib
 
+import matplotlib.pyplot as plt
 # def flow2color(flow):
 #     """
 #     convert optical flow to rgb
@@ -155,16 +156,16 @@ def flow2color(flow):
     u[idxUnknow] = 0
     v[idxUnknow] = 0
 
-    maxu = max(maxu, np.max(u))
-    minu = min(minu, np.min(u))
-
-    maxv = max(maxv, np.max(v))
-    minv = min(minv, np.min(v))
+    # maxu = max(maxu, np.max(u))
+    # minu = min(minu, np.min(u))
+    #
+    # maxv = max(maxv, np.max(v))
+    # minv = min(minv, np.min(v))
 
     rad = np.sqrt(u ** 2 + v ** 2)
     maxrad = max(-1, np.max(rad))
 
-    print "max flow: %.4f\nflow range:\nu = %.3f .. %.3f\nv = %.3f .. %.3f" % (maxrad, minu,maxu, minv, maxv)
+    # print "max flow: %.4f\nflow range:\nu = %.3f .. %.3f\nv = %.3f .. %.3f" % (maxrad, minu,maxu, minv, maxv)
 
     u = u/(maxrad + np.finfo(float).eps)
     v = v/(maxrad + np.finfo(float).eps)
@@ -232,7 +233,7 @@ def flow2vector(flow, interval=30):
 
     return rgb
 
-def check_data(img1, img2, type, gt, interval=10, number=20, y_begin=100, x_begin=100):
+def check_data(img1, img2, type, gt, interval=10, number=20, y_begin=100, x_begin=100, waitforkey=True):
     """
     check the validity of ground truth
     Parameters
@@ -265,11 +266,13 @@ def check_data(img1, img2, type, gt, interval=10, number=20, y_begin=100, x_begi
                 plt.figure()
                 plt.imshow(img1[i - 15:i + 16, j - 15:j + 16])
                 plt.title('patch in img1 x : {} y: {}'.format(j, i))
-                plt.waitforbuttonpress()
+                if waitforkey:
+                    plt.waitforbuttonpress()
                 plt.figure()
                 plt.imshow(img2[i - 15:i + 16, j - int(round(gt[i, j])) - 15:j + 16 - int(round(gt[i, j]))])
                 plt.title('corresponding patch in img2 x : {} y: {}'.format(j+gt[i,j], i))
-                plt.waitforbuttonpress()
+                if waitforkey:
+                    plt.waitforbuttonpress()
                 tot += 1
             elif type == 'flow':
                 # NaN
@@ -278,32 +281,36 @@ def check_data(img1, img2, type, gt, interval=10, number=20, y_begin=100, x_begi
                 plt.figure()
                 plt.imshow(img1[i - 15:i + 16, j - 15:j + 16])
                 plt.title('patch in img1 x : {} y : {}'.format(j, i))
-                plt.waitforbuttonpress()
+                if waitforkey:
+                    plt.waitforbuttonpress()
                 plt.figure()
                 plt.imshow(img2[i - 15 + int(round(gt[i, j, 1])):i + 16 + int(round(gt[i, j, 1])),
                            j + int(round(gt[i, j, 0])) - 15:j + 16 + int(round(gt[i, j, 0]))])
-                plt.title('corresponding patch in img2 x: {} y: {}'.format( i + gt[i, j, 0], j + gt[i, j, 1]))
-                plt.waitforbuttonpress()
+                plt.title('corresponding patch in img2 x: {} y: {}'.format(j + gt[i, j, 0], i + gt[i, j, 1]))
+                if waitforkey:
+                    plt.waitforbuttonpress()
                 tot += 1
 
-def plot(img, name):
+def plot(img, name, waitforkey=True):
 
     plt.figure()
     plt.imshow(img)
     plt.title(name)
-    plt.waitforbuttonpress()
+    plt.colorbar()
+    if waitforkey:
+        plt.waitforbuttonpress()
 
-def plot_pairs(img1, img2, label, type, plot_patch=True):
+def plot_pairs(img1, img2, label, type, plot_patch=True, waitforkey=True, interval=20, num=10, y_begin=100, x_begin=100):
 
-    plot(img1, 'img1')
-    plot(img2, 'img2')
+    plot(img1, 'img1', waitforkey)
+    plot(img2, 'img2', waitforkey)
     if type == 'stereo':
-        plot(label, 'disparity')
+        plot(label, 'disparity', waitforkey)
     elif type == 'flow':
         color = flow2color(label)
         vector = flow2vector(label)
-        plot(color, 'color')
-        plot(vector, 'vector')
+        plot(color, 'color', waitforkey)
+        plot(vector, 'vector', waitforkey)
 
     if plot_patch:
-        check_data(img1, img2, type, label, interval=20, number=2, y_begin=100, x_begin=100)
+        check_data(img1, img2, type, label, interval=interval, number=num, y_begin=y_begin, x_begin=x_begin, waitforkey=waitforkey)

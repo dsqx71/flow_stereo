@@ -1,8 +1,5 @@
 import argparse
 import logging
-import os
-import mxnet as mx
-from data import config
 from experiments import *
 
 if __name__ == '__main__':

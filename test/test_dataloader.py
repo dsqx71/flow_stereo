@@ -1,4 +1,4 @@
-from ..data import dataloader, LMDB
+from ..data import dataloader, LMDB, patchiter
 from ..data import augmentation, dataset
 from ..symbol import dispnet_symbol
 from ..others import visualize
@@ -155,6 +155,72 @@ def test_lmdbloader():
         # visualize.plot_pairs(img1, img2, label, 'flow', plot_patch=True)
         tic = time.time()
 
+def test_patchiter():
+
+    kitti = dataset.KittiDataset(data_type='stereo', which_year='2015', is_train=True)
+    kitti.dirs = kitti.dirs[:5]
+    augment_pipeline = augmentation.augmentation(
+        interpolation_method='bilinear',
+        max_num_tries=10,
+        cropped_height=320,
+        cropped_width=512,
+        data_type='stereo',
+        augment_ratio=1.0,
+        mirror_rate=0.0,
+        flip_rate = 0.0,
+        noise_range = {'method':'uniform', 'exp':False, 'mean':0.03, 'spread':0.03},
+        translate_range={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.4},
+        rotate_range={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.4},
+        zoom_range={'method': 'uniform', 'exp': True, 'mean': 0.2, 'spread': 0.4},
+        squeeze_range={'method': 'uniform', 'exp': True, 'mean': 0, 'spread': 0.3},
+
+        gamma_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+        brightness_range={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.02},
+        contrast_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+        rgb_multiply_range={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.02},
+
+        lmult_pow={'method': 'uniform', 'exp': True, 'mean': -0.2, 'spread': 0.4},
+        lmult_mult={'method': 'uniform', 'exp': True, 'mean': 0.0, 'spread': 0.4},
+        lmult_add={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.03},
+
+        sat_pow={'method': 'uniform', 'exp': True, 'mean': 0, 'spread': 0.4},
+        sat_mult={'method': 'uniform', 'exp': True, 'mean': -0.3, 'spread': 0.5},
+        sat_add={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 0.03},
+
+        col_pow={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.4},
+        col_mult={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.2},
+        col_add={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.02},
+
+        ladd_pow={'method': 'normal', 'exp': True, 'mean': 0, 'spread': 0.4},
+        ladd_mult={'method': 'normal', 'exp': True, 'mean': 0.0, 'spread': 0.4},
+        ladd_add={'method': 'normal', 'exp': False, 'mean': 0, 'spread': 0.04},
+        col_rotate={'method': 'uniform', 'exp': False, 'mean': 0, 'spread': 1})
+
+    dataiter = patchiter.patchiter(ctx=[mx.gpu(0)],
+                         experiment_name='test',
+                         dataset=kitti,
+                         img_augmentation=augment_pipeline,
+                         patch_augmentation=augmentation.patch_augmentation(),
+                         batch_size=128,
+                         low=5,
+                         high=100,
+                         n_thread=20,
+                         be_shuffle=True)
+
+    dataiter = mx.io.PrefetchingIter(dataiter)
+    tic = time.time()
+    for batch in dataiter:
+        toc = time.time()
+        img1, img2, img1_d, img2_d = batch.data
+        visualize.plot(img1[0].asnumpy().transpose(1,2,0), 'img1_{}'.format(batch.label[0][0].asnumpy()))
+        visualize.plot(img2[0].asnumpy().transpose(1,2,0), 'img2')
+        visualize.plot(img1[0].asnumpy().transpose(1,2,0), 'img1_d')
+        visualize.plot(img2[0].asnumpy().transpose(1,2,0), 'img2_d')
+
+        print toc - tic
+        tic = toc
+
 if __name__ == '__main__':
-    # test_numpyloader()
+    test_patchiter()
+    test_numpyloader()
     test_lmdbloader()

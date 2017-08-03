@@ -10,22 +10,22 @@ cfg.caffe = edict()
 #You must download datasets and correctly set the directory prefix.
 cfg.dataset.kitti_prefix = '/rawdata/stereo/kitti/'
 cfg.dataset.flyingchairs_prefix = '/rawdata/stereo/FlyingChairs_release/data/'#'/data01/FlyingChairs_release/data/'##'/home/xudong/flow_stereo/data/flyingchair/'
-cfg.dataset.SythesisData_prefix = '/rawdata/stereo/'#'/data01/'#'/home/xudong/flow_stereo/data/synthesis/'
+cfg.dataset.SythesisData_prefix = '/data/'#'/rawdata/stereo/'#'/data01/'#'/home/xudong/flow_stereo/data/synthesis/'
 cfg.dataset.tusimple_stereo = '/data01/tusimple_stereo_data/'
 cfg.dataset.sintel_prefix = '/rawdata/stereo/sintel/'
 
 # mean file
-cfg.dataset.mean_dir = '/rawdata/checkpoint_flowstereo/mean/'
+cfg.dataset.mean_dir = '/data/checkpoint_flowstereo/mean/'
 # directory prefix of results
-cfg.model.check_point = '/rawdata/checkpoint_flowstereo/'
+cfg.model.check_point = '/data/checkpoint_flowstereo/'
 # final results
-cfg.model.model_zoo = "/rawdata/checkpoint_flowstereo/model_zoo/"
+cfg.model.model_zoo = "/data/checkpoint_flowstereo/model_zoo/"
 # log
-cfg.model.log_prefix = '/rawdata/checkpoint_flowstereo/logs/'
+cfg.model.log_prefix = '/data/checkpoint_flowstereo/logs/'
 
 #------------Optional params-------------------
 # pretrain model
-cfg.model.pretrain_model_prefix = '/rawdata/checkpoint_flowstereo/pretrain_model/'
+cfg.model.pretrain_model_prefix = '/data/checkpoint_flowstereo/pretrain_model/'
 
 # directories of caffe stuff. If you don't use caffeloader, ignore them
 cfg.caffe.prototxt_dir = '/home/xudong/dispflownet-release/models/DispNetCorr1D/model/data.prototxt'

@@ -241,11 +241,12 @@ def warp_flownet(img1, img2, flow, name, factor=2, is_block=False, is_bilinear=F
 
 def warp_dispnet(img1, img2, disp, name, factor=2):
 
-    disp = mx.sym.UpSampling(arg0=disp, scale=factor, num_filter=1,
-                             num_args=1, sample_type='nearest',
-                             name='upsamplingop_disp{}'.format(name))
+    if factor > 1:
+        disp = mx.sym.UpSampling(arg0=disp, scale=factor, num_filter=1,
+                                 num_args=1, sample_type='nearest',
+                                 name='upsamplingop_disp{}'.format(name))
     disp = mx.sym.BlockGrad(data=disp, name='blockgrad_disp{}'.format(name))
-    flow = mx.sym.concat(disp, disp*0)
+    flow = mx.sym.concat(disp, mx.sym.zeros_like(disp))
     img2_warped = warp(img=img2, flow=flow, name='dispnet-{}-warp'.format(name))
     error = mx.sym.square(img1 - img2_warped)
     error = mx.sym.sum(error, axis=1, keepdims = True)
